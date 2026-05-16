@@ -2,10 +2,11 @@ import { useAuth } from "@/context/AuthContext";
 import { User } from "@/services/authService";
 import usersService from "@/services/usersService";
 import conversationsService from "@/services/conversationsService";
+import socketService from "@/services/socketService";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -66,6 +67,31 @@ export default function App() {
   useEffect(() => {
     loadUsers();
     loadConversations();
+  }, []);
+
+  // Real-time: update conversation list when a new message arrives
+  useEffect(() => {
+    const unsubscribe = socketService.on("message_received", (data: any) => {
+      const incomingMsg = data.message || data;
+      const convId = (incomingMsg.conversationId?._id || incomingMsg.conversationId)?.toString();
+      if (!convId) return;
+
+      setUserConversations((prev) =>
+        prev.map((conv) => {
+          const id = (conv.id || conv._id)?.toString();
+          if (id === convId) {
+            return {
+              ...conv,
+              lastMessage: incomingMsg.text || "New message",
+              lastMessageTime: incomingMsg.createdAt || new Date().toISOString(),
+            };
+          }
+          return conv;
+        })
+      );
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const loadConversations = async () => {
@@ -490,7 +516,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#0F172A",
   },
-  chatInfo: { flex: 1, justifyContent: "center" },
   time: { color: "#64748B", fontSize: 12 },
 
   /* Modal Styles */

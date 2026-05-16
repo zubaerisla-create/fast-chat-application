@@ -1,8 +1,8 @@
 import { io, Socket } from "socket.io-client";
 import authService from "./authService";
 
-const SOCKET_URL =
-  process.env.EXPO_PUBLIC_API_URL || "https://fast-chat-1.onrender.com";
+const rawUrl = process.env.EXPO_PUBLIC_API_URL || "https://fast-chat-1.onrender.com";
+const SOCKET_URL = rawUrl.endsWith('/api') ? rawUrl.replace('/api', '') : rawUrl;
 
 class SocketService {
   private socket: Socket | null = null;
@@ -18,22 +18,38 @@ class SocketService {
       return;
     }
 
-    try {
-      const token = await authService.getToken();
+    return new Promise(async (resolve) => {
+      try {
+        const token = await authService.getToken();
 
-      this.socket = io(SOCKET_URL, {
-        auth: { token },
-        transports: ['websocket'],
-        reconnection: true,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000,
-        reconnectionAttempts: 5,
-      });
+        // Disconnect stale socket if exists
+        if (this.socket) {
+          this.socket.disconnect();
+          this.socket = null;
+        }
 
-      this.setupDefaultListeners();
-    } catch (error) {
-      console.error("Socket connection error:", error);
-    }
+        this.socket = io(SOCKET_URL, {
+          auth: { token },
+          transports: ['websocket', 'polling'], // polling fallback for reliability
+          reconnection: true,
+          reconnectionDelay: 1000,
+          reconnectionDelayMax: 5000,
+          reconnectionAttempts: 10,
+          timeout: 10000,
+        });
+
+        this.setupDefaultListeners();
+
+        // Resolve once connected
+        this.socket.once("connect", () => resolve());
+
+        // Resolve anyway after timeout to avoid hanging
+        setTimeout(() => resolve(), 5000);
+      } catch (error) {
+        console.error("Socket connection error:", error);
+        resolve(); // Don't reject — app should still work
+      }
+    });
   }
 
   /**
@@ -106,10 +122,21 @@ class SocketService {
     this.socket.on("receiveMessage", handleIncomingMessage);
     this.socket.on("newMessage", handleIncomingMessage);
     this.socket.on("message_received", handleIncomingMessage);
+
+    this.socket.on("messagesSeen", (data) => {
+      console.log("👀 Messages seen by server:", JSON.stringify(data));
+      this.notifyListeners("messages_seen", data);
+    });
     // ─────────────────────────────────────────────────────────────────────
 
     this.socket.on("incomingCall", (data) => {
       this.notifyListeners("incoming_call", data);
+    });
+
+    // Server confirms call was initiated and provides authoritative channelName
+    this.socket.on("call_initiated", (data) => {
+      console.log("📡 call_initiated from server:", data);
+      this.notifyListeners("call_initiated", data);
     });
 
     this.socket.on("call_joined", (data) => {
@@ -187,6 +214,13 @@ class SocketService {
   }
 
   /**
+   * Mark messages as seen
+   */
+  markMessagesSeen(conversationId: string, messageIds: string[], seenBy: string, senderId?: string): void {
+    this.emit("markMessagesSeen", { conversationId, messageIds, seenBy, senderId, seenAt: new Date().toISOString() });
+  }
+
+  /**
    * Join a specific conversation room
    */
   joinConversation(conversationId: string): void {
@@ -202,8 +236,9 @@ class SocketService {
     receiverId: string,
     callType: "audio" | "video",
     channelName: string,
+    callerName?: string
   ): void {
-    this.emit("initiate_call", { receiverId, callType, channelName });
+    this.emit("initiate_call", { receiverId, callType, channelName, callerName });
   }
 
   /**

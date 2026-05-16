@@ -41,6 +41,7 @@ interface Message {
   timestamp?: string;
   fileUrl?: string;
   fileType?: string;
+  isRead?: boolean;
 }
 
 export default function ChatScreen() {
@@ -127,6 +128,7 @@ export default function ChatScreen() {
               timestamp: timeSource,
               fileUrl: msg.fileUrl,
               fileType: msg.fileType,
+              isRead: msg.isRead,
             };
           });
           console.log("Logged messages count:", mappedMessages.length);
@@ -180,6 +182,7 @@ export default function ChatScreen() {
           timestamp: timeSource,
           fileUrl: incomingMsg.fileUrl,
           fileType: incomingMsg.fileType,
+          isRead: incomingMsg.isRead,
         };
 
         // Prevent duplicate messages
@@ -200,6 +203,59 @@ export default function ChatScreen() {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]); // Register once per user session — ref handles conversationId updates
+
+  // Listen for read receipts — mark MY sent messages as seen
+  useEffect(() => {
+    const unsubscribeSeen = socketService.on("messages_seen", (data: any) => {
+      console.log("Read receipt received:", data);
+      const currentConvId = conversationIdRef.current?.toString();
+      const incomingConvId = data.conversationId?.toString();
+      
+      if (!incomingConvId || !currentConvId || incomingConvId === currentConvId) {
+        if (data.messageIds && Array.isArray(data.messageIds)) {
+          // Convert all IDs to strings for safe comparison
+          const seenIds = data.messageIds.map((id: any) => id.toString());
+          setMessages(prev => prev.map(msg => 
+            seenIds.includes(msg.id?.toString()) ? { ...msg, isRead: true } : msg
+          ));
+        } else {
+          // If no specific IDs, mark ALL my sent messages as read
+          setMessages(prev => prev.map(msg =>
+            msg.isMe ? { ...msg, isRead: true } : msg
+          ));
+        }
+      }
+    });
+
+    return () => {
+      unsubscribeSeen();
+    };
+  }, []);
+
+  // Mark incoming messages as read
+  useEffect(() => {
+    if (!conversationId || messages.length === 0 || !user) return;
+
+    const unreadMessages = messages.filter(msg => !msg.isMe && !msg.isRead && msg.id);
+    if (unreadMessages.length === 0) return;
+
+    const unreadMessageIds = unreadMessages.map(msg => msg.id);
+
+    // Optimistically mark as read in local state
+    setMessages(prev => prev.map(msg =>
+      unreadMessageIds.includes(msg.id) ? { ...msg, isRead: true } : msg
+    ));
+
+    // Call API — controller will emit messagesSeen to sender via socket
+    conversationsService.markMessagesRead(conversationId).then(markedIds => {
+      if (markedIds && markedIds.length > 0) {
+        // Also emit via socket directly (senderId = person we're chatting with)
+        const userId = (user?.id || user?._id) as string;
+        socketService.markMessagesSeen(conversationId, markedIds, userId, targetUserId);
+      }
+    }).catch(err => console.error("Failed to mark messages read:", err));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages.length, conversationId, user]);
 
   useEffect(() => {
     if (contactModalVisible && targetUserId) {
@@ -455,7 +511,17 @@ export default function ChatScreen() {
           <Text style={item.isMe ? styles.myText : styles.theirText}>
             {item.text}
           </Text>
-          <Text style={styles.timeText}>{item.time}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end' }}>
+            <Text style={styles.timeText}>{item.time}</Text>
+            {item.isMe && (
+              <Ionicons 
+                name={item.isRead ? "checkmark-done" : "checkmark"} 
+                size={16} 
+                color={item.isRead ? "#34D399" : "#94A3B8"} 
+                style={{ marginLeft: 4, marginTop: 4 }}
+              />
+            )}
+          </View>
         </View>
       </View>
     );

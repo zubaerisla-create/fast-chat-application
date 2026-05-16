@@ -20,6 +20,7 @@ export interface Message {
   fileName?: string;
   fileSize?: number;
   timestamp: string;
+  isRead?: boolean;
 }
 
 const conversationsService = {
@@ -141,6 +142,22 @@ const conversationsService = {
     } catch (error: any) {
       throw new Error(
         error.response?.data?.message || "Failed to send voice message",
+      );
+    }
+  },
+
+  /**
+   * Mark messages as read
+   */
+  markMessagesRead: async (conversationId: string): Promise<string[]> => {
+    try {
+      const response = await apiClient.patch(
+        `/messages/${conversationId}/mark-read`,
+      );
+      return response.data.messageIds || [];
+    } catch (error: any) {
+      throw new Error(
+        error.response?.data?.message || "Failed to mark messages as read",
       );
     }
   },

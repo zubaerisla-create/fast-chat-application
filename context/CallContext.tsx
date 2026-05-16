@@ -50,7 +50,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Register listeners ONCE — use refs for current values to avoid stale closures
   useEffect(() => {
     const unsubscribeIncoming = socketService.on("incoming_call", (data: any) => {
-      console.log("Incoming call received:", data);
+      console.log("📞 Incoming call received:", data);
       if (statusRef.current !== "idle") {
         // Busy — auto reject
         socketService.rejectCall(data.callerId, data.channelName);
@@ -65,10 +65,23 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         callType: data.callType,
       });
       setStatus("incoming");
+      
+      // ✅ NEW: Navigate to CallingScreen automatically for incoming call
+      router.push({
+        pathname: "/screens/chat/CallingScreen",
+        params: { type: data.callType, role: "receiver" },
+      });
+    });
+
+    // ✅ NEW: caller receives server-generated channelName via call_initiated
+    const unsubscribeInitiated = socketService.on("call_initiated", (data: any) => {
+      console.log("📡 Call initiated confirmed by server:", data);
+      // Update callData with the AUTHORITATIVE server channelName
+      setCallData(prev => prev ? { ...prev, channelName: data.channelName } : null);
     });
 
     const unsubscribeAccepted = socketService.on("call_accepted", (data: any) => {
-      console.log("Call joined event received:", data);
+      console.log("✅ Call joined event received:", data);
       const currentUser = userRef.current;
       setCallData(prev => ({
         ...(prev || {}),
@@ -84,20 +97,21 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     const unsubscribeRejected = socketService.on("call_rejected", (_data: any) => {
-      console.log("Call rejected by remote");
+      console.log("🚫 Call rejected by remote");
       setStatus("idle");
       setCallData(null);
       Alert.alert("Call Rejected", "The user rejected or is busy.");
     });
 
     const unsubscribeEnded = socketService.on("call_ended", (_data: any) => {
-      console.log("Call ended by remote");
+      console.log("🔴 Call ended by remote");
       setStatus("idle");
       setCallData(null);
     });
 
     return () => {
       unsubscribeIncoming();
+      unsubscribeInitiated();
       unsubscribeAccepted();
       unsubscribeRejected();
       unsubscribeEnded();
@@ -117,18 +131,20 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    const channelId = user.id || user._id || "";
-    const channelName = callingService.generateChannelName(channelId, receiverId);
+    const callerId = user.id || user._id || "";
+
+    // Set temporary callData (channelName will be updated when server confirms via call_initiated)
     setCallData({
-      callerId: channelId,
+      callerId,
       receiverId,
       callerName: user.username,
-      channelName,
+      channelName: "",   // server will provide the real channelName
       callType: type,
     });
     setStatus("outgoing");
 
-    socketService.initiateCall(receiverId, type, channelName);
+    // Tell server to initiate — server generates channelName & notifies receiver
+    socketService.initiateCall(receiverId, type, "", user.username);
 
     router.push({
       pathname: "/screens/chat/CallingScreen",

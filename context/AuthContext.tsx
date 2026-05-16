@@ -45,10 +45,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     if (isAuthenticated && user) {
       const userId = user.id || user._id;
-      if (userId) {
-        socketService.notifyOnline(userId.toString());
-      }
-      socketService.connect();
+      // First connect, THEN notify online — socket must exist before emitting
+      socketService.connect().then(() => {
+        if (userId) {
+          socketService.notifyOnline(userId.toString());
+        }
+      });
     }
   }, [isAuthenticated, user]);
 
@@ -77,8 +79,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       const { user: loggedInUser } = await authService.login(email, password);
       setUser(loggedInUser);
       setIsAuthenticated(true);
-      // Connect socket after successful login
-      socketService.connect();
+      // Connect socket and notify online after login
+      await socketService.connect();
+      const userId = loggedInUser.id || loggedInUser._id;
+      if (userId) socketService.notifyOnline(userId.toString());
     } catch (error) {
       setIsAuthenticated(false);
       throw error;
@@ -101,8 +105,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       );
       setUser(newUser);
       setIsAuthenticated(true);
-      // Connect socket after successful registration
-      socketService.connect();
+      // Connect socket and notify online after registration
+      await socketService.connect();
+      const userId = newUser.id || newUser._id;
+      if (userId) socketService.notifyOnline(userId.toString());
     } catch (error) {
       setIsAuthenticated(false);
       throw error;

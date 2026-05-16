@@ -1,8 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios, { AxiosInstance } from "axios";
 
-const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL || "https://fast-chat-1.onrender.com/api";
+const rawUrl = process.env.EXPO_PUBLIC_API_URL || "https://fast-chat-1.onrender.com";
+const API_BASE_URL = rawUrl.endsWith('/api') ? rawUrl : `${rawUrl}/api`;
 
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
