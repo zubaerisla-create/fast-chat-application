@@ -335,6 +335,10 @@ export default function App() {
             </View>
           )
         }
+        initialNumToRender={10}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        removeClippedSubviews={true}
       />
 
       {/* Edit Profile Modal (Same as before) */}

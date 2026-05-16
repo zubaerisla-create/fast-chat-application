@@ -602,7 +602,7 @@ export default function ChatScreen() {
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 20}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 24}
       >
         {/* Messages */}
         <FlatList
@@ -615,6 +615,10 @@ export default function ChatScreen() {
           onContentSizeChange={() =>
             flatListRef.current?.scrollToEnd({ animated: true })
           }
+          initialNumToRender={15}
+          maxToRenderPerBatch={10}
+          windowSize={10}
+          removeClippedSubviews={true}
         />
 
         {/* Message Input */}
@@ -639,7 +643,9 @@ export default function ChatScreen() {
             value={messageText}
             onChangeText={setMessageText}
             multiline
+            maxLength={1000}
             editable={!isSending}
+            textAlignVertical="center"
           />
 
           {messageText.trim() ? (
@@ -955,30 +961,41 @@ const styles = StyleSheet.create({
 
   inputContainer: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-end", // multiline হলে বাটনগুলো নিচে থাকবে
     backgroundColor: "#1E2937",
     marginHorizontal: 12,
-    marginBottom:1,
-    marginTop: 4,
-    borderRadius: 30,
+    marginBottom: Platform.OS === "ios" ? 12 : 16,
+    marginTop: 8,
+    borderRadius: 24,
     paddingHorizontal: 12,
-    minHeight: 56,
+    paddingVertical: 6,
+    minHeight: 52,
   },
-  attachButton: { padding: 8 },
+  attachButton: { 
+    padding: 8,
+    marginBottom: 4, // input-এর সাথে align করার জন্য
+  },
   input: {
     flex: 1,
     color: "white",
     fontSize: 16,
     maxHeight: 120,
-    paddingVertical: 10,
+    minHeight: 40,
+    paddingTop: Platform.OS === "ios" ? 10 : 8,
+    paddingBottom: Platform.OS === "ios" ? 10 : 8,
+    paddingHorizontal: 8,
   },
-  micButton: { padding: 8 },
+  micButton: { 
+    padding: 8,
+    marginBottom: 4,
+  },
   activeMicButton: {
     backgroundColor: "rgba(239, 68, 68, 0.1)",
     borderRadius: 20,
   },
   sendButton: {
     padding: 8,
+    marginBottom: 4,
     justifyContent: "center",
     alignItems: "center",
   },
