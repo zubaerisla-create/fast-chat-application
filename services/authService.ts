@@ -16,18 +16,32 @@ export interface AuthResponse {
 
 const authService = {
   /**
+   * Send OTP to user's email
+   */
+  sendOTP: async (email: string): Promise<any> => {
+    try {
+      const response = await apiClient.post("/auth/send-otp", { email });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || "Failed to send OTP");
+    }
+  },
+
+  /**
    * Register a new user
    */
   register: async (
     username: string,
     email: string,
     password: string,
+    otp: string,
   ): Promise<AuthResponse> => {
     try {
       const response = await apiClient.post("/auth/register", {
         username,
         email,
         password,
+        otp,
       });
 
       const { token, user } = response.data;

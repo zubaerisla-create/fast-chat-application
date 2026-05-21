@@ -5,6 +5,7 @@ import React, { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -21,13 +22,15 @@ import {
 
 export default function AuthScreen() {
   const router = useRouter();
-  const { login, register, isLoading } = useAuth();
+  const { login, register, sendOTP, isLoading } = useAuth();
 
   const [mode, setMode] = useState("signup"); // 'signin' or 'signup'
+  const [step, setStep] = useState(1); // 1 = Details, 2 = OTP
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [otp, setOtp] = useState("");
   const [error, setError] = useState("");
 
   const handleSubmit = async () => {
@@ -40,7 +43,7 @@ export default function AuthScreen() {
         return;
       }
 
-      if (mode === "signup" && !username) {
+      if (mode === "signup" && step === 1 && !username) {
         setError("Username is required");
         return;
       }
@@ -51,10 +54,21 @@ export default function AuthScreen() {
       }
 
       if (mode === "signup") {
-        // Register
-        await register(username, email, password);
-        Alert.alert("Success", "Account created successfully!");
-        router.replace("/(tabs)");
+        if (step === 1) {
+          // Send OTP
+          await sendOTP(email);
+          Alert.alert("Success", "OTP sent to your email!");
+          setStep(2);
+        } else if (step === 2) {
+          if (!otp || otp.length !== 6) {
+            setError("Please enter a valid 6-digit OTP");
+            return;
+          }
+          // Register with OTP
+          await register(username, email, password, otp);
+          Alert.alert("Success", "Account created successfully!");
+          router.replace("/(tabs)");
+        }
       } else {
         // Login
         await login(email, password);
@@ -83,9 +97,10 @@ export default function AuthScreen() {
             <View style={styles.content}>
               {/* Logo */}
               <View style={styles.logoContainer}>
-                <View style={styles.logo}>
-                  <View style={styles.logoDot} />
-                </View>
+                <Image 
+                  source={require('../../../assets/images/icon.png')} 
+                  style={{ width: 80, height: 80, borderRadius: 20 }} 
+                />
               </View>
 
               {/* Title */}
@@ -96,7 +111,7 @@ export default function AuthScreen() {
               <View style={styles.tabContainer}>
                 <TouchableOpacity
                   style={[styles.tab, mode === "signin" && styles.activeTab]}
-                  onPress={() => setMode("signin")}
+                  onPress={() => { setMode("signin"); setStep(1); }}
                 >
                   <Text
                     style={[
@@ -110,7 +125,7 @@ export default function AuthScreen() {
 
                 <TouchableOpacity
                   style={[styles.tab, mode === "signup" && styles.activeTab]}
-                  onPress={() => setMode("signup")}
+                  onPress={() => { setMode("signup"); setStep(1); }}
                 >
                   <Text
                     style={[
@@ -133,20 +148,55 @@ export default function AuthScreen() {
 
               {/* Form */}
               <View style={styles.form}>
-                {mode === "signup" && (
+                {mode === "signup" && step === 2 ? (
                   <>
-                    <Text style={styles.label}>USERNAME</Text>
+                    <Text style={styles.label}>ENTER OTP</Text>
+                    <Text style={{color: '#94A3B8', marginBottom: 16}}>An OTP has been sent to {email}</Text>
                     <TextInput
                       style={styles.input}
-                      placeholder="your_username"
+                      placeholder="6-digit OTP"
                       placeholderTextColor="#64748B"
-                      value={username}
-                      onChangeText={setUsername}
+                      value={otp}
+                      onChangeText={setOtp}
+                      keyboardType="number-pad"
+                      maxLength={6}
                     />
-                  </>
-                )}
+                    
+                    <TouchableOpacity
+                      style={[styles.button, isLoading && styles.buttonDisabled]}
+                      onPress={handleSubmit}
+                      disabled={isLoading}
+                    >
+                      {isLoading ? (
+                        <ActivityIndicator color="white" size="large" />
+                      ) : (
+                        <Text style={styles.buttonText}>Verify & Register</Text>
+                      )}
+                    </TouchableOpacity>
 
-                <Text style={styles.label}>EMAIL</Text>
+                    <TouchableOpacity
+                      style={{ marginTop: 20, alignItems: 'center' }}
+                      onPress={() => setStep(1)}
+                    >
+                      <Text style={{ color: '#94A3B8', fontSize: 16, fontWeight: '600' }}>Go Back</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    {mode === "signup" && (
+                      <>
+                        <Text style={styles.label}>USERNAME</Text>
+                        <TextInput
+                          style={styles.input}
+                          placeholder="your_username"
+                          placeholderTextColor="#64748B"
+                          value={username}
+                          onChangeText={setUsername}
+                        />
+                      </>
+                    )}
+
+                    <Text style={styles.label}>EMAIL</Text>
                 <TextInput
                   style={styles.input}
                   placeholder="you@example.com"
@@ -189,10 +239,12 @@ export default function AuthScreen() {
                     <ActivityIndicator color="white" size="large" />
                   ) : (
                     <Text style={styles.buttonText}>
-                      {mode === "signup" ? "Create Account" : "Sign In"}
+                      {mode === "signup" ? "Send OTP" : "Sign In"}
                     </Text>
                   )}
                 </TouchableOpacity>
+                  </>
+                )}
               </View>
             </View>
           </TouchableWithoutFeedback>

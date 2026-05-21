@@ -69,6 +69,12 @@ export default function App() {
     loadConversations();
   }, []);
 
+  const userConversationsRef = useRef<any[]>([]);
+  
+  useEffect(() => {
+    userConversationsRef.current = userConversations;
+  }, [userConversations]);
+
   // Real-time: update conversation list when a new message arrives
   useEffect(() => {
     const unsubscribe = socketService.on("message_received", (data: any) => {
@@ -76,19 +82,27 @@ export default function App() {
       const convId = (incomingMsg.conversationId?._id || incomingMsg.conversationId)?.toString();
       if (!convId) return;
 
-      setUserConversations((prev) =>
-        prev.map((conv) => {
-          const id = (conv.id || conv._id)?.toString();
-          if (id === convId) {
-            return {
-              ...conv,
-              lastMessage: incomingMsg.text || "New message",
-              lastMessageTime: incomingMsg.createdAt || new Date().toISOString(),
-            };
-          }
-          return conv;
-        })
-      );
+      const exists = userConversationsRef.current.some(conv => (conv.id || conv._id)?.toString() === convId);
+      
+      if (!exists) {
+        // If it's a new conversation from a new user, reload the list to get participant details
+        loadConversations();
+      } else {
+        // Otherwise, just update the last message in the existing list
+        setUserConversations((prev) =>
+          prev.map((conv) => {
+            const id = (conv.id || conv._id)?.toString();
+            if (id === convId) {
+              return {
+                ...conv,
+                lastMessage: incomingMsg.text || "New message",
+                lastMessageTime: incomingMsg.createdAt || new Date().toISOString(),
+              };
+            }
+            return conv;
+          })
+        );
+      }
     });
 
     return () => unsubscribe();
@@ -201,6 +215,11 @@ export default function App() {
           const itemId = item.id || item._id;
           const targetId = isUser ? (item.id || item._id) : (otherParticipant?._id || otherParticipant?.id);
           
+          if (searchText) {
+            setSearchText("");
+            setSearchVisible(false);
+          }
+          
           router.push(`../screens/chat/ChatScreen?name=${name}&conversationId=${isUser ? "" : itemId}&userId=${targetId}`);
         }}
       >
@@ -236,7 +255,12 @@ export default function App() {
         <Text style={styles.title}>fast-chat</Text>
         <View style={styles.headerIcons}>
           {/* Search Button - Now Toggles Search Bar */}
-          <TouchableOpacity onPress={() => setSearchVisible(!searchVisible)}>
+          <TouchableOpacity onPress={() => {
+            if (searchVisible) {
+              setSearchText("");
+            }
+            setSearchVisible(!searchVisible);
+          }}>
             <Ionicons name="search" size={24} color="#94A3B8" />
           </TouchableOpacity>
 
@@ -248,10 +272,10 @@ export default function App() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            onPress={() => router.push("../screens/auth/SignupScreen")}
+            onPress={handleLogout}
             style={{ marginLeft: 20 }}
           >
-            <Ionicons name="share-outline" size={24} color="#94A3B8" />
+            <Ionicons name="log-out-outline" size={24} color="#EF4444" />
           </TouchableOpacity>
         </View>
       </View>
@@ -295,7 +319,10 @@ export default function App() {
             onChangeText={setSearchText}
             autoFocus
           />
-          <TouchableOpacity onPress={() => setSearchVisible(false)}>
+          <TouchableOpacity onPress={() => {
+            setSearchVisible(false);
+            setSearchText("");
+          }}>
             <Ionicons name="close" size={20} color="#64748B" />
           </TouchableOpacity>
         </View>

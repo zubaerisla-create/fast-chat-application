@@ -7,10 +7,12 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  sendOTP: (email: string) => Promise<void>;
   register: (
     username: string,
     email: string,
     password: string,
+    otp: string,
   ) => Promise<void>;
   logout: () => Promise<void>;
   updateUser: (user: User) => void;
@@ -91,10 +93,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
+  const sendOTP = async (email: string) => {
+    try {
+      setIsLoading(true);
+      await authService.sendOTP(email);
+    } catch (error) {
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const register = async (
     username: string,
     email: string,
     password: string,
+    otp: string,
   ) => {
     try {
       setIsLoading(true);
@@ -102,6 +116,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         username,
         email,
         password,
+        otp,
       );
       setUser(newUser);
       setIsAuthenticated(true);
@@ -139,6 +154,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     user,
     isAuthenticated,
     isLoading,
+    sendOTP,
     login,
     register,
     logout,

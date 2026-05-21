@@ -483,9 +483,16 @@ export default function ChatScreen() {
       >
         {!item.isMe && (
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {chatName.charAt(0).toUpperCase()}
-            </Text>
+            {targetUserProfile?.avatar ? (
+              <Image
+                source={{ uri: targetUserProfile.avatar }}
+                style={{ width: "100%", height: "100%", borderRadius: 16 }}
+              />
+            ) : (
+              <Text style={styles.avatarText}>
+                {chatName.charAt(0).toUpperCase()}
+              </Text>
+            )}
           </View>
         )}
 
@@ -553,9 +560,16 @@ export default function ChatScreen() {
 
         <View style={styles.headerUser}>
           <View style={styles.headerAvatar}>
-            <Text style={styles.headerAvatarText}>
-              {chatName.charAt(0).toUpperCase()}
-            </Text>
+            {targetUserProfile?.avatar ? (
+              <Image
+                source={{ uri: targetUserProfile.avatar }}
+                style={{ width: "100%", height: "100%", borderRadius: 20 }}
+              />
+            ) : (
+              <Text style={styles.headerAvatarText}>
+                {chatName.charAt(0).toUpperCase()}
+              </Text>
+            )}
           </View>
           <View>
             <View style={{ flexDirection: "row", alignItems: "center" }}>
