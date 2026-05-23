@@ -87,6 +87,14 @@ export default function ChatScreen() {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const headerAnim = useRef(new Animated.Value(0)).current;
 
+  // ── Scroll new messages into view (inverted list: prepend = scroll to top = bottom visually) ──
+  // Only needed for smooth animated scroll when a new message arrives/is sent.
+  // The inverted FlatList naturally starts at the bottom — no initial scroll needed.
+  useEffect(() => {
+    if (messages.length === 0) return;
+    flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, [messages.length]);
+
   const isRecipientOnline =
     (targetUserId && onlineUsers.includes(targetUserId.toString())) ||
     targetUserProfile?.isOnline;
@@ -147,8 +155,6 @@ export default function ChatScreen() {
             };
           });
           setMessages(mappedMessages);
-          // Scroll to bottom after initial load
-          setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 150);
         }
       } catch (error) {
         Alert.alert("Error", "Failed to load conversation");
@@ -186,7 +192,7 @@ export default function ChatScreen() {
           if (mappedMsg.id && prev.some(m => m.id === mappedMsg.id)) return prev;
           return [...prev, mappedMsg];
         });
-        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+        // scrollToEnd is handled by the messages.length useEffect above
       }
     });
     return () => { unsubscribeMessage(); };
@@ -265,8 +271,7 @@ export default function ChatScreen() {
         console.error("Error sending message via API:", error);
       }
       socketService.emit("send_message", { conversationId, message: currentText });
-      // Scroll to bottom — give React time to render the new message
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 150);
+      // scrollToEnd is handled by the messages.length useEffect
     } catch (error) {
       Alert.alert("Error", "Failed to send message");
     } finally {
@@ -394,12 +399,16 @@ export default function ChatScreen() {
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     const isSelected = selectedMessageId === item.id;
     const currentTimestamp = item.timestamp;
-    const prevTimestamp = index > 0 ? messages[index - 1]?.timestamp : undefined;
+    // In inverted list data is reversed: index+1 is the older (previous) message
+    const prevTimestamp = index < messages.length - 1 ? messages[messages.length - 2 - index]?.timestamp : undefined;
+    // Show date separator when this message is on a different day than the one before it
+    // "before it" in chronological order = index+1 in the reversed array
+    const olderItem = messages[messages.length - 2 - index];
     const showDateSeparator =
-      index === 0 ||
+      index === messages.length - 1 || // oldest message always shows separator
       (currentTimestamp !== undefined &&
-        prevTimestamp !== undefined &&
-        new Date(currentTimestamp).toDateString() !== new Date(prevTimestamp).toDateString());
+        olderItem?.timestamp !== undefined &&
+        new Date(currentTimestamp).toDateString() !== new Date(olderItem.timestamp).toDateString());
 
     const isImageOnly = item.fileType === "image" && item.fileUrl;
     const isAudio = item.fileType === "audio";
@@ -573,16 +582,16 @@ export default function ChatScreen() {
           <View style={{ flex: 1 }}>
             <FlatList
               ref={flatListRef}
-              data={messages}
+              data={[...messages].reverse()}
               renderItem={renderMessage}
               keyExtractor={(item, index) => `${item.id}-${index}`}
               style={styles.messagesList}
               contentContainerStyle={styles.messagesContent}
-              initialNumToRender={15}
+              initialNumToRender={20}
               maxToRenderPerBatch={10}
               windowSize={10}
               removeClippedSubviews={true}
-              onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
+              inverted
             />
 
             {/* ── Input Bar ── */}
