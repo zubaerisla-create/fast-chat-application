@@ -1,18 +1,28 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { DarkTheme, DefaultTheme, NavigationContainerRef, ThemeProvider } from '@react-navigation/native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect, useRef } from 'react';
 import 'react-native-reanimated';
-import { useEffect } from 'react';
 
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { activeChatIdRef } from '@/app/screens/chat/ChatScreen';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { CallProvider } from '@/context/CallContext';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { usePushNotifications } from '@/hooks/usePushNotifications';
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const { isAuthenticated, isLoading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+
+  // navigationRef — passed to the push hook so tapping a notification navigates correctly
+  const navigationRef = useRef<NavigationContainerRef<any>>(null);
+
+  // activeChatIdRef is a module-level ref exported from ChatScreen.
+  // It is set when the user enters a chat and cleared when they leave,
+  // so the push hook can suppress duplicate in-app banners.
+  usePushNotifications(navigationRef, activeChatIdRef.current);
 
   useEffect(() => {
     if (isLoading) return;
@@ -21,13 +31,10 @@ function RootLayoutNav() {
     const inAuthGroup = segments[0] === 'screens' && segments[1] === 'auth';
 
     if (!isAuthenticated && !inAuthGroup) {
-      // Redirect to the login page if they are not authenticated and not already in the auth group
       router.replace('/screens/auth/SignupScreen');
     } else if (isAuthenticated && inAuthGroup) {
-      // Redirect to the home page if they are authenticated and try to access the auth group
       router.replace('/(tabs)');
     } else if (isAuthenticated && (segments as string[]).length === 0) {
-      // Handle the case where they are authenticated and hit the index route (/)
       router.replace('/(tabs)');
     }
   }, [isAuthenticated, isLoading, segments, router]);

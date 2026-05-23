@@ -3,6 +3,7 @@ import { User } from "@/services/authService";
 import usersService from "@/services/usersService";
 import conversationsService from "@/services/conversationsService";
 import socketService from "@/services/socketService";
+import { formatConversationTime } from "@/utils/dateFormatter";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
@@ -200,7 +201,7 @@ export default function App() {
       : (otherParticipant?.avatar || item.participantAvatar || name.charAt(0).toUpperCase());
     
     const color = isUser ? "#10B981" : "#3B82F6";
-    const time = isUser ? "" : (item.lastMessageTime || "");
+    const time = isUser ? "" : formatConversationTime(item.lastMessageTime);
     
     // Check if participant is online (combine real-time socket data with DB status)
     const participantId = isUser ? (item.id || item._id) : (otherParticipant?._id || otherParticipant?.id);

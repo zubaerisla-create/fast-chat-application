@@ -13,6 +13,7 @@
     },
     "android": {
       "icon": "./assets/images/icon.png",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#ffffff"
@@ -49,6 +50,15 @@
       ],
       "expo-audio",
       "expo-video",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#6366F1",
+          "androidMode": "default",
+          "androidCollapsedTitle": "New messages"
+        }
+      ],
       [
         "expo-build-properties",
         {

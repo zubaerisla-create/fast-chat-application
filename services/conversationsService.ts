@@ -19,6 +19,7 @@ export interface Message {
   fileType?: string;
   fileName?: string;
   fileSize?: number;
+  audioDuration?: number;
   timestamp: string;
   isRead?: boolean;
 }
@@ -81,6 +82,7 @@ const conversationsService = {
     fileType?: string,
     fileName?: string,
     fileSize?: number,
+    audioDuration?: number,
   ): Promise<Message> => {
     try {
       const response = await apiClient.post("/messages", {
@@ -90,6 +92,7 @@ const conversationsService = {
         fileType,
         fileName,
         fileSize,
+        audioDuration,
       });
       return response.data.message;
     } catch (error: any) {

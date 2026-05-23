@@ -5,9 +5,10 @@ import { Ionicons } from "@expo/vector-icons";
 interface VoicePlayerProps {
   url: string;
   isMe: boolean;
+  audioDuration?: number;
 }
 
-export const VoicePlayer: React.FC<VoicePlayerProps> = ({ url, isMe }) => {
+export const VoicePlayer: React.FC<VoicePlayerProps> = ({ url, isMe, audioDuration }) => {
   const player = useAudioPlayer(url);
   const status = useAudioPlayerStatus(player);
 
@@ -15,19 +16,41 @@ export const VoicePlayer: React.FC<VoicePlayerProps> = ({ url, isMe }) => {
     if (player.playing) {
       player.pause();
     } else {
+      const current = status?.currentTime || 0;
+      const duration = status?.duration || 0;
+      // If playback has finished or is near the end, seek back to 0 so it replays instantly
+      if (duration > 0 && current >= duration - 0.2) {
+        player.seekTo(0);
+      }
       player.play();
     }
   };
 
-  const formatTime = (millis: number) => {
-    const totalSeconds = millis / 1000;
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = Math.floor(totalSeconds % 60);
-    return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
+  const formatTime = (seconds: number) => {
+    const minutes = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${minutes}:${secs < 10 ? "0" : ""}${secs}`;
   };
 
-  const progress = status.duration > 0 ? (status.currentTime / status.duration) * 100 : 0;
-  const isLoading = status.isBuffering;
+  const progress = (status?.duration && status.duration > 0) ? ((status.currentTime || 0) / status.duration) * 100 : 0;
+  const isLoading = status?.isBuffering || false;
+
+  // Choose which time to display
+  const getDisplayTime = () => {
+    const current = status?.currentTime || 0;
+    const duration = status?.duration || 0;
+
+    if (player.playing || current > 0) {
+      return formatTime(current);
+    }
+    if (duration > 0) {
+      return formatTime(duration);
+    }
+    if (audioDuration) {
+      return formatTime(audioDuration); // audioDuration is already in seconds
+    }
+    return "0:00";
+  };
 
   return (
     <View style={[styles.container, isMe ? styles.myContainer : styles.theirContainer]}>
@@ -47,8 +70,8 @@ export const VoicePlayer: React.FC<VoicePlayerProps> = ({ url, isMe }) => {
         <View style={styles.progressBarBackground}>
           <View style={[styles.progressBarFill, { width: `${progress}%`, backgroundColor: isMe ? "#fff" : "#3B82F6" }]} />
         </View>
-        <Text style={[styles.timeText, { color: isMe ? "rgba(255,255,255,0.7)" : "#64748B" }]}>
-          {formatTime(player.playing || status.currentTime > 0 ? status.currentTime : status.duration)}
+        <Text style={[styles.timeText, { color: isMe ? "rgba(255,255,255,0.9)" : "#94A3B8" }]}>
+          {getDisplayTime()}
         </Text>
       </View>
     </View>

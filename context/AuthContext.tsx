@@ -1,5 +1,7 @@
+import { clearPushToken, registerForPushNotifications } from "@/hooks/usePushNotifications";
 import authService, { User } from "@/services/authService";
 import socketService from "@/services/socketService";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useContext, useEffect, useState } from "react";
 
 interface AuthContextType {
@@ -15,7 +17,7 @@ interface AuthContextType {
     otp: string,
   ) => Promise<void>;
   logout: () => Promise<void>;
-  updateUser: (user: User) => void;
+  updateUser: (user: User) => Promise<void>;
   onlineUsers: string[];
 }
 
@@ -62,8 +64,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       const token = await authService.getToken();
 
       if (storedUser && token) {
+        // Set the cached user instantly to avoid UI lag
         setUser(storedUser);
         setIsAuthenticated(true);
+
+        // Register push token now that we have a valid auth token in AsyncStorage
+        registerForPushNotifications().catch(err =>
+          console.warn("Push token registration failed on startup:", err)
+        );
+
+        // Fetch fresh user profile from backend to sync any updates (e.g., avatar changes)
+        const userId = storedUser.id || storedUser._id;
+        if (userId) {
+          try {
+            const usersService = require("@/services/usersService").default;
+            const freshUser = await usersService.getUserProfile(userId.toString());
+            if (freshUser) {
+              const updatedUserData = {
+                ...storedUser,
+                username: freshUser.username,
+                email: freshUser.email,
+                avatar: freshUser.avatar,
+              };
+              setUser(updatedUserData);
+              await AsyncStorage.setItem("user", JSON.stringify(updatedUserData));
+            }
+          } catch (fetchError) {
+            console.warn("Failed to fetch fresh user profile on startup:", fetchError);
+          }
+        }
       } else {
         setIsAuthenticated(false);
       }
@@ -85,6 +114,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       await socketService.connect();
       const userId = loggedInUser.id || loggedInUser._id;
       if (userId) socketService.notifyOnline(userId.toString());
+      // Register push token — auth token is now in AsyncStorage
+      registerForPushNotifications().catch(err =>
+        console.warn("Push token registration failed after login:", err)
+      );
     } catch (error) {
       setIsAuthenticated(false);
       throw error;
@@ -124,6 +157,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       await socketService.connect();
       const userId = newUser.id || newUser._id;
       if (userId) socketService.notifyOnline(userId.toString());
+      // Register push token — auth token is now in AsyncStorage
+      registerForPushNotifications().catch(err =>
+        console.warn("Push token registration failed after register:", err)
+      );
     } catch (error) {
       setIsAuthenticated(false);
       throw error;
@@ -136,6 +173,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       setIsLoading(true);
       socketService.disconnect();
+      // Remove push token from backend before clearing local session
+      await clearPushToken();
       await authService.logout();
       setUser(null);
       setIsAuthenticated(false);
@@ -146,8 +185,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-  const updateUser = (updatedUser: User) => {
+  const updateUser = async (updatedUser: User) => {
     setUser(updatedUser);
+    try {
+      await AsyncStorage.setItem("user", JSON.stringify(updatedUser));
+    } catch (error) {
+      console.error("Failed to update user in storage:", error);
+    }
   };
 
   const value: AuthContextType = {
