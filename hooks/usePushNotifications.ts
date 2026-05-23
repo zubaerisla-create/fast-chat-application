@@ -10,6 +10,8 @@ Notifications.setNotificationHandler({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
   }),
 });
 
@@ -68,9 +70,11 @@ export function usePushNotifications(
 
 export async function registerForPushNotifications(): Promise<string | null> {
   if (!Device.isDevice) {
-    console.warn("Push notifications only work on physical devices.");
+    console.warn("⚠️ Push notifications only work on physical devices.");
     return null;
   }
+
+  console.log("📱 Device info:", Device.modelName, "OS:", Platform.OS);
 
   // Android: create a high-priority notification channel
   if (Platform.OS === "android") {
@@ -81,34 +85,45 @@ export async function registerForPushNotifications(): Promise<string | null> {
       lightColor: "#6366F1",
       sound: "default",
     });
+    console.log("✅ Android notification channel created");
   }
 
   const { status: existingStatus } = await Notifications.getPermissionsAsync();
+  console.log("🔔 Existing permission status:", existingStatus);
   let finalStatus = existingStatus;
 
   if (existingStatus !== "granted") {
     const { status } = await Notifications.requestPermissionsAsync();
     finalStatus = status;
+    console.log("🔔 Requested permission, new status:", finalStatus);
   }
 
   if (finalStatus !== "granted") {
-    console.warn("Push notification permission denied.");
+    console.warn("❌ Push notification permission denied. Status:", finalStatus);
     return null;
   }
 
-  // projectId from app.json > extra.eas.projectId
-  const tokenData = await Notifications.getExpoPushTokenAsync({
-    projectId: "ec4ee1e6-0314-44dd-962b-f3d56be4e4d6",
-  });
+  console.log("✅ Permission granted, getting Expo push token...");
 
-  const expoPushToken = tokenData.data;
+  let expoPushToken: string;
+  try {
+    // projectId from app.json > extra.eas.projectId
+    const tokenData = await Notifications.getExpoPushTokenAsync({
+      projectId: "ec4ee1e6-0314-44dd-962b-f3d56be4e4d6",
+    });
+    expoPushToken = tokenData.data;
+    console.log("✅ Got Expo push token:", expoPushToken);
+  } catch (tokenErr: any) {
+    console.error("❌ Failed to get Expo push token:", tokenErr?.message);
+    return null;
+  }
 
   // Save token to backend — auth token is guaranteed to be in AsyncStorage here
   try {
     await apiClient.put("/users/push-token", { expoPushToken });
-    console.log("✅ Push token saved:", expoPushToken);
+    console.log("✅ Push token saved to backend successfully");
   } catch (err: any) {
-    console.error("Failed to save push token:", err?.message);
+    console.error("❌ Failed to save push token to backend:", err?.message, "Status:", err?.response?.status);
   }
 
   return expoPushToken;

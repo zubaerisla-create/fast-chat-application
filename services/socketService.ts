@@ -1,7 +1,7 @@
 import { io, Socket } from "socket.io-client";
 import authService from "./authService";
 
-const rawUrl = process.env.EXPO_PUBLIC_API_URL || "https://fast-chat-1.onrender.com";
+const rawUrl = (process.env.EXPO_PUBLIC_API_URL || "https://fast-chat-1.onrender.com").trim();
 const SOCKET_URL = rawUrl.endsWith('/api') ? rawUrl.replace('/api', '') : rawUrl;
 
 class SocketService {
@@ -9,6 +9,8 @@ class SocketService {
   private userId: string | null = null;
   // Internal pub/sub map — completely separate from socket events
   private localListeners: Map<string, Function[]> = new Map();
+
+  private activeConversationId: string | null = null;
 
   /**
    * Initialize socket connection
@@ -30,12 +32,13 @@ class SocketService {
 
         this.socket = io(SOCKET_URL, {
           auth: { token },
-          transports: ['websocket', 'polling'], // polling fallback for reliability
+          transports: ['polling', 'websocket'], // polling first — more reliable in production/preview
           reconnection: true,
           reconnectionDelay: 1000,
           reconnectionDelayMax: 5000,
           reconnectionAttempts: 10,
-          timeout: 10000,
+          timeout: 20000,
+          forceNew: false,
         });
 
         this.setupDefaultListeners();
@@ -100,6 +103,13 @@ class SocketService {
       // Auto-notify online if userId is known
       if (this.userId) {
         this.socket?.emit("userOnline", this.userId);
+      }
+
+      // Re-join active conversation room after reconnect
+      if (this.activeConversationId) {
+        console.log("🔄 Re-joining conversation after reconnect:", this.activeConversationId);
+        this.socket?.emit("join_conversation", this.activeConversationId);
+        this.socket?.emit("joinRoom", this.activeConversationId);
       }
     });
 
@@ -225,6 +235,7 @@ class SocketService {
    */
   joinConversation(conversationId: string): void {
     console.log("Joining conversation room:", conversationId);
+    this.activeConversationId = conversationId; // remember for reconnect
     this.emit("join_conversation", conversationId);
     this.emit("joinRoom", conversationId);
   }
