@@ -20,6 +20,10 @@ export interface Message {
   fileName?: string;
   fileSize?: number;
   audioDuration?: number;
+  replyToMessageId?: string;
+  replyToText?: string;
+  replyToSenderId?: string;
+  replyToSender?: any;
   timestamp: string;
   isRead?: boolean;
 }
@@ -83,6 +87,9 @@ const conversationsService = {
     fileName?: string,
     fileSize?: number,
     audioDuration?: number,
+    replyToMessageId?: string,
+    replyToText?: string,
+    replyToSenderId?: string,
   ): Promise<Message> => {
     try {
       const response = await apiClient.post("/messages", {
@@ -93,6 +100,9 @@ const conversationsService = {
         fileName,
         fileSize,
         audioDuration,
+        replyToMessageId,
+        replyToText,
+        replyToSenderId,
       });
       return response.data.message;
     } catch (error: any) {

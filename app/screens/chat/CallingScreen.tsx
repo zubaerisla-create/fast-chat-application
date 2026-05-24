@@ -56,15 +56,21 @@ async function requestCallPermissions(isVideo: boolean): Promise<boolean> {
 
 // ── Component ────────────────────────────────────────────────────────────────
 export default function CallingScreen() {
-  const { type } = useLocalSearchParams<{ type: "audio" | "video"; role: "caller" | "receiver" }>();
+  const { type, role, otherUserName: paramOtherName } = useLocalSearchParams<{
+    type: "audio" | "video";
+    role: "caller" | "receiver";
+    otherUserName?: string;
+  }>();
   const { status, callData, endCall, acceptCall, rejectCall } = useCall();
 
   const isVideo = type === "video";
+  const otherName = paramOtherName || (role === "receiver" ? callData?.callerName : null) || "Other";
 
   const [isMuted, setIsMuted] = useState(false);
   // Camera starts ON for video calls, OFF for audio calls
   const [isCameraOff, setIsCameraOff] = useState(!isVideo);
   const [remoteUid, setRemoteUid] = useState<number>(0);
+  const [isSwapped, setIsSwapped] = useState(false);
   const engine = useRef<any | null>(null);
   // Track whether Agora has been set up so we never run it twice
   const agoraInitialised = useRef(false);
@@ -267,37 +273,64 @@ export default function CallingScreen() {
     <View style={styles.container}>
       {isVideo ? (
         <View style={styles.videoContainer}>
-          {/* Remote video — full screen */}
-          {remoteUid !== 0 && RtcSurfaceView ? (
-            <RtcSurfaceView
-              canvas={{ uid: remoteUid }}
-              style={styles.remoteVideo}
-            />
-          ) : (
-            <View style={styles.remotePlaceholder}>
-              <View style={styles.avatarContainerLarge}>
-                <Text style={styles.avatarTextLarge}>
-                  {callData?.callerName?.charAt(0).toUpperCase() ?? "U"}
-                </Text>
+          {/* ── Full-screen video (remote or local based on swap) ── */}
+          {isSwapped ? (
+            // Local video full-screen
+            !isCameraOff && RtcSurfaceView ? (
+              <RtcSurfaceView canvas={{ uid: 0 }} style={styles.remoteVideo} />
+            ) : (
+              <View style={styles.remotePlaceholder}>
+                <View style={styles.avatarContainerLarge}>
+                  <Text style={styles.avatarTextLarge}>Y</Text>
+                </View>
+                <Text style={styles.placeholderText}>Camera is off</Text>
               </View>
-              <Text style={styles.placeholderText}>Waiting for other person...</Text>
-            </View>
+            )
+          ) : (
+            // Remote video full-screen
+            remoteUid !== 0 && RtcSurfaceView ? (
+              <RtcSurfaceView canvas={{ uid: remoteUid }} style={styles.remoteVideo} />
+            ) : (
+              <View style={styles.remotePlaceholder}>
+                <View style={styles.avatarContainerLarge}>
+                  <Text style={styles.avatarTextLarge}>
+                    {otherName.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+                <Text style={styles.placeholderText}>Waiting for {otherName}...</Text>
+              </View>
+            )
           )}
 
-          {/* Local video — picture-in-picture */}
-          <View style={styles.localVideoContainer}>
-            {!isCameraOff && RtcSurfaceView ? (
-              <RtcSurfaceView
-                canvas={{ uid: 0 }}
-                style={styles.localVideo}
-                zOrderMediaOverlay={true}
-              />
+          {/* ── PiP — tap to swap ── */}
+          <TouchableOpacity
+            onPress={() => setIsSwapped(prev => !prev)}
+            activeOpacity={0.9}
+            style={styles.localVideoContainer}
+          >
+            {isSwapped ? (
+              // Remote video in PiP
+              remoteUid !== 0 && RtcSurfaceView ? (
+                <RtcSurfaceView canvas={{ uid: remoteUid }} style={styles.localVideo} zOrderMediaOverlay={true} />
+              ) : (
+                <View style={[styles.localVideo, styles.cameraOffPlaceholder]}>
+                  <Ionicons name="person" size={24} color="white" />
+                </View>
+              )
             ) : (
-              <View style={[styles.localVideo, styles.cameraOffPlaceholder]}>
-                <Ionicons name="videocam-off" size={24} color="white" />
-              </View>
+              // Local video in PiP
+              !isCameraOff && RtcSurfaceView ? (
+                <RtcSurfaceView canvas={{ uid: 0 }} style={styles.localVideo} zOrderMediaOverlay={true} />
+              ) : (
+                <View style={[styles.localVideo, styles.cameraOffPlaceholder]}>
+                  <Ionicons name="videocam-off" size={24} color="white" />
+                </View>
+              )
             )}
-          </View>
+            <View style={styles.pipLabel}>
+              <Text style={styles.pipLabelText}>{isSwapped ? otherName : "You"}</Text>
+            </View>
+          </TouchableOpacity>
         </View>
       ) : (
         // Audio call active UI
@@ -428,6 +461,23 @@ const styles = StyleSheet.create({
     backgroundColor: "#334155",
     justifyContent: "center",
     alignItems: "center",
+  },
+  pipLabel: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+  },
+  pipLabelText: {
+    color: "white",
+    fontSize: 11,
+    fontWeight: "600",
+    textAlign: "center",
   },
 
   // Audio active

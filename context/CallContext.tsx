@@ -69,7 +69,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // ✅ NEW: Navigate to CallingScreen automatically for incoming call
       router.push({
         pathname: "/screens/chat/CallingScreen",
-        params: { type: data.callType, role: "receiver" },
+        params: { type: data.callType, role: "receiver", otherUserName: data.callerName || "Unknown" },
       });
     });
 
@@ -148,7 +148,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     router.push({
       pathname: "/screens/chat/CallingScreen",
-      params: { type, role: "caller" },
+      params: { type, role: "caller", otherUserName: receiverName },
     });
   };
 
@@ -158,7 +158,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       socketService.acceptCall(callData.callerId, callData.channelName);
       router.push({
         pathname: "/screens/chat/CallingScreen",
-        params: { type: callData.callType, role: "receiver" },
+        params: { type: callData.callType, role: "receiver", otherUserName: callData.callerName },
       });
     } catch (error) {
       console.error("Error accepting call:", error);

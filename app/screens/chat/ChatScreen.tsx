@@ -10,6 +10,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Audio } from "expo-av";
 import * as DocumentPicker from "expo-document-picker";
+import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -21,8 +22,10 @@ import {
   Dimensions,
   FlatList,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Platform,
   ScrollView,
   StatusBar,
@@ -30,14 +33,13 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const { width, height } = Dimensions.get("window");
 
-// Module-level ref — shared with _layout.tsx so the push notification hook
-// can suppress duplicate banners when the user is already in this chat.
 export const activeChatIdRef = { current: null as string | null };
 
 interface Message {
@@ -50,7 +52,177 @@ interface Message {
   fileType?: string;
   isRead?: boolean;
   audioDuration?: number;
+  replyToMessageId?: string;
+  replyToText?: string;
+  replyToSenderId?: string;
+  replyToSender?: any;
+  senderId?: string;
 }
+
+interface SwipeableMessageProps {
+  children: React.ReactNode;
+  onReply: () => void;
+  isMe: boolean;
+}
+
+const SwipeableMessage: React.FC<SwipeableMessageProps> = ({ children, onReply, isMe }) => {
+  const translateX = useRef(new Animated.Value(0)).current;
+  const hapticTriggered = useRef(false);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // Active horizontal drag, ignore vertical scrolls
+        return Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dy) < 15;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        let dx = gestureState.dx;
+        
+        // Resistance effect when swiping too far
+        const maxSwipe = 100;
+        if (dx > maxSwipe) {
+          dx = maxSwipe + (dx - maxSwipe) * 0.2;
+        } else if (dx < -maxSwipe) {
+          dx = -maxSwipe + (dx + maxSwipe) * 0.2;
+        }
+        
+        translateX.setValue(dx);
+
+        const threshold = 60;
+        if (Math.abs(dx) >= threshold) {
+          if (!hapticTriggered.current) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            hapticTriggered.current = true;
+          }
+        } else {
+          hapticTriggered.current = false;
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        const threshold = 60;
+        if (Math.abs(gestureState.dx) >= threshold) {
+          onReply();
+        }
+        hapticTriggered.current = false;
+        Animated.spring(translateX, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 50,
+          friction: 7,
+        }).start();
+      },
+      onPanResponderTerminate: () => {
+        hapticTriggered.current = false;
+        Animated.spring(translateX, {
+          toValue: 0,
+          useNativeDriver: true,
+        }).start();
+      },
+    })
+  ).current;
+
+  // Compute transform outputs for the reply icons
+  const rightSwipeOpacity = translateX.interpolate({
+    inputRange: [0, 40, 60],
+    outputRange: [0, 0.5, 1],
+    extrapolate: "clamp",
+  });
+
+  const rightSwipeScale = translateX.interpolate({
+    inputRange: [0, 60],
+    outputRange: [0.5, 1],
+    extrapolate: "clamp",
+  });
+
+  const leftSwipeOpacity = translateX.interpolate({
+    inputRange: [-60, -40, 0],
+    outputRange: [1, 0.5, 0],
+    extrapolate: "clamp",
+  });
+
+  const leftSwipeScale = translateX.interpolate({
+    inputRange: [-60, 0],
+    outputRange: [1, 0.5],
+    extrapolate: "clamp",
+  });
+
+  return (
+    <View style={styles.swipeContainer} {...panResponder.panHandlers}>
+      {/* Left Icon (revealed when swiping right) */}
+      <Animated.View
+        style={[
+          styles.replyIconLeft,
+          {
+            opacity: rightSwipeOpacity,
+            transform: [{ scale: rightSwipeScale }],
+          },
+        ]}
+      >
+        <Ionicons name="arrow-undo" size={20} color="#8B5CF6" />
+      </Animated.View>
+
+      {/* Right Icon (revealed when swiping left) */}
+      <Animated.View
+        style={[
+          styles.replyIconRight,
+          {
+            opacity: leftSwipeOpacity,
+            transform: [{ scale: leftSwipeScale }, { scaleX: -1 }],
+          },
+        ]}
+      >
+        <Ionicons name="arrow-undo" size={20} color="#8B5CF6" />
+      </Animated.View>
+
+      <Animated.View
+        style={[
+          { transform: [{ translateX }] },
+          isMe ? { alignSelf: "flex-end" } : { alignSelf: "flex-start" },
+        ]}
+      >
+        {children}
+      </Animated.View>
+    </View>
+  );
+};
+
+const getReplySenderName = (
+  replyToSenderId?: string,
+  replyToSender?: any,
+  currentUserId?: string,
+  targetUserId?: string,
+  chatName?: string
+): string => {
+  const currentUserIdStr = currentUserId?.toString();
+  const recipientIdStr = targetUserId?.toString();
+  
+  // Resolve using replyToSenderId
+  const replySenderIdStr = replyToSenderId;
+  if (replySenderIdStr) {
+    if (currentUserIdStr && replySenderIdStr === currentUserIdStr) {
+      return "You";
+    }
+    if (recipientIdStr && replySenderIdStr === recipientIdStr) {
+      return chatName || "User";
+    }
+  }
+
+  // Resolve using replyToSender
+  if (replyToSender) {
+    if (typeof replyToSender === "string") {
+      return replyToSender;
+    }
+    if (replyToSender.username) {
+      return replyToSender.username;
+    }
+    if (replyToSender.name) {
+      return replyToSender.name;
+    }
+  }
+
+  return "User";
+};
 
 export default function ChatScreen() {
   const router = useRouter();
@@ -81,15 +253,13 @@ export default function ChatScreen() {
   const [isLoadingProfile, setIsLoadingProfile] = useState(false);
   const [selectedPreviewImage, setSelectedPreviewImage] = useState<string | null>(null);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  const [replyingTo, setReplyingTo] = useState<{ id: string; text: string; sender: string; senderId: string } | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const conversationIdRef = useRef<string | null>(conversationId);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const headerAnim = useRef(new Animated.Value(0)).current;
 
-  // ── Scroll new messages into view (inverted list: prepend = scroll to top = bottom visually) ──
-  // Only needed for smooth animated scroll when a new message arrives/is sent.
-  // The inverted FlatList naturally starts at the bottom — no initial scroll needed.
   useEffect(() => {
     if (messages.length === 0) return;
     flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
@@ -107,13 +277,8 @@ export default function ChatScreen() {
     Animated.timing(headerAnim, { toValue: 1, duration: 600, useNativeDriver: true }).start();
   }, []);
 
-  // ── Track active chat for push notification suppression ──────────────────
-  // This ref lives in _layout.tsx; we reach it via navigation state.
-  // Simpler approach: store conversationId in a module-level ref that the hook reads.
   useFocusEffect(
     useCallback(() => {
-      // Mark this conversation as "currently open" so the push hook can suppress
-      // duplicate in-app banners while the user is already reading this chat.
       activeChatIdRef.current = conversationId;
       return () => {
         activeChatIdRef.current = null;
@@ -147,11 +312,16 @@ export default function ChatScreen() {
               text: msg.text,
               time: new Date(timeSource).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
               isMe: (msg.senderId?._id || msg.senderId)?.toString() === (user?.id || user?._id)?.toString(),
+              senderId: (msg.senderId?._id || msg.senderId)?.toString(),
               timestamp: timeSource,
               fileUrl: msg.fileUrl,
               fileType: msg.fileType,
               isRead: msg.isRead,
               audioDuration: msg.audioDuration,
+              replyToMessageId: msg.replyToMessageId,
+              replyToText: msg.replyToText,
+              replyToSender: msg.replyToSender,
+              replyToSenderId: msg.replyToSenderId,
             };
           });
           setMessages(mappedMessages);
@@ -182,17 +352,21 @@ export default function ChatScreen() {
           text: incomingMsg.text,
           time: new Date(timeSource).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           isMe: (incomingMsg.senderId?._id || incomingMsg.senderId)?.toString() === (user?.id || user?._id)?.toString(),
+          senderId: (incomingMsg.senderId?._id || incomingMsg.senderId)?.toString(),
           timestamp: timeSource,
           fileUrl: incomingMsg.fileUrl,
           fileType: incomingMsg.fileType,
           isRead: incomingMsg.isRead,
           audioDuration: incomingMsg.audioDuration,
+          replyToMessageId: incomingMsg.replyToMessageId,
+          replyToText: incomingMsg.replyToText,
+          replyToSender: incomingMsg.replyToSender,
+          replyToSenderId: incomingMsg.replyToSenderId,
         };
         setMessages(prev => {
           if (mappedMsg.id && prev.some(m => m.id === mappedMsg.id)) return prev;
           return [...prev, mappedMsg];
         });
-        // scrollToEnd is handled by the messages.length useEffect above
       }
     });
     return () => { unsubscribeMessage(); };
@@ -254,24 +428,58 @@ export default function ChatScreen() {
     try {
       setIsSending(true);
       const tempId = Date.now().toString();
+      const replyData = replyingTo ? {
+        id: replyingTo.id,
+        text: replyingTo.text,
+        sender: replyingTo.sender,
+        senderId: replyingTo.senderId
+      } : null;
+
       const newMessage: Message = {
         id: tempId,
         text: messageText,
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         isMe: true,
         timestamp: new Date().toISOString(),
+        replyToMessageId: replyData?.id,
+        replyToText: replyData?.text,
+        replyToSender: replyData?.sender,
+        replyToSenderId: replyData?.senderId,
       };
       setMessages(prev => [...prev, newMessage]);
       const currentText = messageText;
       setMessageText("");
+      setReplyingTo(null);
+
       try {
-        const sentMsg = await conversationsService.sendMessage(conversationId, currentText);
-        setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: sentMsg.id || (sentMsg as any)._id } : m));
+        const sentMsg = await conversationsService.sendMessage(
+          conversationId,
+          currentText,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          replyData?.id,
+          replyData?.text,
+          replyData?.senderId
+        );
+        setMessages(prev => prev.map(m => m.id === tempId ? {
+          ...m,
+          id: sentMsg.id || (sentMsg as any)._id,
+          replyToSenderId: sentMsg.replyToSenderId || m.replyToSenderId,
+          replyToSender: sentMsg.replyToSender || m.replyToSender
+        } : m));
       } catch (error) {
         console.error("Error sending message via API:", error);
       }
-      socketService.emit("send_message", { conversationId, message: currentText });
-      // scrollToEnd is handled by the messages.length useEffect
+      socketService.emit("send_message", {
+        conversationId,
+        message: currentText,
+        replyToMessageId: replyData?.id,
+        replyToText: replyData?.text,
+        replyToSenderId: replyData?.senderId,
+      });
     } catch (error) {
       Alert.alert("Error", "Failed to send message");
     } finally {
@@ -299,6 +507,23 @@ export default function ChatScreen() {
     } catch (error) {
       Alert.alert("Error", "Failed to pick document");
     }
+  };
+
+  const cancelReply = () => {
+    setReplyingTo(null);
+  };
+
+  const startReplyToMessage = (message: Message) => {
+    const replySenderId = message.isMe
+      ? (user?.id || user?._id)?.toString()
+      : targetUserId?.toString();
+
+    setReplyingTo({
+      id: message.id,
+      text: message.text,
+      sender: message.isMe ? "You" : chatName,
+      senderId: replySenderId || "",
+    });
   };
 
   const handleAudioCall = () => {
@@ -364,6 +589,14 @@ export default function ChatScreen() {
     if (!conversationId) return;
     try {
       setIsSending(true);
+      const replyData = replyingTo ? {
+        id: replyingTo.id,
+        text: replyingTo.text,
+        sender: replyingTo.sender,
+        senderId: replyingTo.senderId
+      } : null;
+      setReplyingTo(null);
+
       const uploadResult = await uploadService.uploadFile(uri, type);
       if (!uploadResult.success) throw new Error("Upload failed");
       const publicUrl = uploadResult.url;
@@ -371,9 +604,20 @@ export default function ChatScreen() {
       const sentMsg = await conversationsService.sendMessage(
         conversationId,
         type === "image" ? "📷 Image" : type === "audio" ? "🎵 Voice Message" : "📄 File",
-        publicUrl, type, uploadResult.fileName, undefined, audioDuration
+        publicUrl,
+        type,
+        uploadResult.fileName,
+        undefined,
+        audioDuration,
+        replyData?.id,
+        replyData?.text,
+        replyData?.senderId
       );
       const newMessage: Message = {
+        replyToMessageId: replyData?.id,
+        replyToText: replyData?.text,
+        replyToSender: replyData?.sender,
+        replyToSenderId: replyData?.senderId,
         id: sentMsg.id || (sentMsg as any)._id,
         text: type === "image" ? "📷 Image" : type === "audio" ? "🎵 Voice Message" : "📄 File",
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -387,7 +631,13 @@ export default function ChatScreen() {
       socketService.emit("send_message", {
         conversationId,
         message: type === "image" ? "📷 Image" : type === "audio" ? "🎵 Voice Message" : "📄 File",
-        fileUrl: publicUrl, fileType: type, senderId: user?.id || user?._id, audioDuration,
+        fileUrl: publicUrl,
+        fileType: type,
+        senderId: user?.id || user?._id,
+        audioDuration,
+        replyToMessageId: replyData?.id,
+        replyToText: replyData?.text,
+        replyToSenderId: replyData?.senderId,
       });
     } catch (error) {
       Alert.alert("Error", "Failed to upload and send file. Please check your internet connection.");
@@ -399,13 +649,9 @@ export default function ChatScreen() {
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     const isSelected = selectedMessageId === item.id;
     const currentTimestamp = item.timestamp;
-    // In inverted list data is reversed: index+1 is the older (previous) message
-    const prevTimestamp = index < messages.length - 1 ? messages[messages.length - 2 - index]?.timestamp : undefined;
-    // Show date separator when this message is on a different day than the one before it
-    // "before it" in chronological order = index+1 in the reversed array
     const olderItem = messages[messages.length - 2 - index];
     const showDateSeparator =
-      index === messages.length - 1 || // oldest message always shows separator
+      index === messages.length - 1 ||
       (currentTimestamp !== undefined &&
         olderItem?.timestamp !== undefined &&
         new Date(currentTimestamp).toDateString() !== new Date(olderItem.timestamp).toDateString());
@@ -413,14 +659,46 @@ export default function ChatScreen() {
     const isImageOnly = item.fileType === "image" && item.fileUrl;
     const isAudio = item.fileType === "audio";
 
+    const replyQuote = item.replyToText ? (
+      <View
+        style={[
+          styles.replyQuoteContainer,
+          item.isMe ? styles.myReplyQuoteContainer : styles.theirReplyQuoteContainer,
+        ]}
+      >
+        <View style={styles.replyQuoteContent}>
+          <Text
+            style={[
+              styles.replyQuoteLabel,
+              item.isMe ? styles.myReplyQuoteLabel : styles.theirReplyQuoteLabel,
+            ]}
+          >
+            {getReplySenderName(
+              item.replyToSenderId,
+              item.replyToSender,
+              user?.id || user?._id,
+              targetUserId,
+              chatName
+            )}
+          </Text>
+          <Text
+            style={[
+              styles.replyQuoteText,
+              item.isMe ? styles.myReplyQuoteText : styles.theirReplyQuoteText,
+            ]}
+            numberOfLines={1}
+          >
+            {item.replyToText}
+          </Text>
+        </View>
+      </View>
+    ) : null;
+
     return (
       <View style={{ width: "100%" }}>
         {showDateSeparator && (
           <View style={styles.dateContainer}>
-            <LinearGradient
-              colors={["#1E293B", "#0F172A"]}
-              style={styles.datePill}
-            >
+            <LinearGradient colors={["#1E293B", "#0F172A"]} style={styles.datePill}>
               <Text style={styles.dateText}>{formatChatSeparatorDate(item.timestamp)}</Text>
             </LinearGradient>
           </View>
@@ -432,7 +710,9 @@ export default function ChatScreen() {
           </View>
         )}
 
-        <View style={[styles.messageContainer, item.isMe ? { justifyContent: "flex-end" } : { justifyContent: "flex-start" }]}>
+        <View
+          style={[styles.messageContainer, item.isMe ? { justifyContent: "flex-end" } : { justifyContent: "flex-start" }]}
+        >
           {!item.isMe && (
             <View style={styles.avatar}>
               {targetUserProfile?.avatar ? (
@@ -445,60 +725,60 @@ export default function ChatScreen() {
             </View>
           )}
 
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={() => setSelectedMessageId(prev => prev === item.id ? null : item.id)}
-            style={[styles.bubble, item.isMe ? styles.myBubble : styles.theirBubble, isImageOnly && styles.imageBubble]}
-          >
-            {item.isMe ? (
-              <LinearGradient
-                colors={["#7C3AED", "#6D28D9"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={[styles.bubbleInner, isImageOnly && { padding: 0 }]}
-              >
-                {item.fileUrl && (
-                  isAudio ? (
-                    <VoicePlayer url={item.fileUrl} isMe={item.isMe} audioDuration={item.audioDuration} />
-                  ) : (
-                    <TouchableOpacity onPress={() => setSelectedPreviewImage(item.fileUrl || null)}>
-                      <Image source={{ uri: item.fileUrl }} style={styles.messageImage} resizeMode="cover" />
-                    </TouchableOpacity>
-                  )
-                )}
-                {!isAudio && (
-                  <Text style={styles.myText}>{item.text}</Text>
-                )}
-                <View style={styles.timeRow}>
-                  <Text style={styles.myTimeText}>{item.time}</Text>
-                  <Ionicons
-                    name={item.isRead ? "checkmark-done" : "checkmark"}
-                    size={14}
-                    color={item.isRead ? "#A5F3FC" : "rgba(255,255,255,0.5)"}
-                    style={{ marginLeft: 3 }}
-                  />
+          <SwipeableMessage onReply={() => startReplyToMessage(item)} isMe={item.isMe}>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => setSelectedMessageId(prev => prev === item.id ? null : item.id)}
+              style={[styles.bubble, item.isMe ? styles.myBubble : styles.theirBubble, isImageOnly && styles.imageBubble]}
+            >
+              {item.isMe ? (
+                <LinearGradient
+                  colors={["#7C3AED", "#6D28D9"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={[styles.bubbleInner, isImageOnly && { padding: 0 }]}
+                >
+                  {replyQuote}
+                  {item.fileUrl && (
+                    isAudio ? (
+                      <VoicePlayer url={item.fileUrl} isMe={item.isMe} audioDuration={item.audioDuration} />
+                    ) : (
+                      <TouchableOpacity onPress={() => setSelectedPreviewImage(item.fileUrl || null)}>
+                        <Image source={{ uri: item.fileUrl }} style={styles.messageImage} resizeMode="cover" />
+                      </TouchableOpacity>
+                    )
+                  )}
+                  {!isAudio && <Text style={styles.myText}>{item.text}</Text>}
+                  <View style={styles.timeRow}>
+                    <Text style={styles.myTimeText}>{item.time}</Text>
+                    <Ionicons
+                      name={item.isRead ? "checkmark-done" : "checkmark"}
+                      size={14}
+                      color={item.isRead ? "#A5F3FC" : "rgba(255,255,255,0.5)"}
+                      style={{ marginLeft: 3 }}
+                    />
+                  </View>
+                </LinearGradient>
+              ) : (
+                <View style={[styles.bubbleInner, isImageOnly && { padding: 0 }]}> 
+                  {replyQuote}
+                  {item.fileUrl && (
+                    isAudio ? (
+                      <VoicePlayer url={item.fileUrl} isMe={item.isMe} audioDuration={item.audioDuration} />
+                    ) : (
+                      <TouchableOpacity onPress={() => setSelectedPreviewImage(item.fileUrl || null)}>
+                        <Image source={{ uri: item.fileUrl }} style={styles.messageImage} resizeMode="cover" />
+                      </TouchableOpacity>
+                    )
+                  )}
+                  {!isAudio && <Text style={styles.theirText}>{item.text}</Text>}
+                  <View style={styles.timeRow}>
+                    <Text style={styles.theirTimeText}>{item.time}</Text>
+                  </View>
                 </View>
-              </LinearGradient>
-            ) : (
-              <View style={[styles.bubbleInner, isImageOnly && { padding: 0 }]}>
-                {item.fileUrl && (
-                  isAudio ? (
-                    <VoicePlayer url={item.fileUrl} isMe={item.isMe} audioDuration={item.audioDuration} />
-                  ) : (
-                    <TouchableOpacity onPress={() => setSelectedPreviewImage(item.fileUrl || null)}>
-                      <Image source={{ uri: item.fileUrl }} style={styles.messageImage} resizeMode="cover" />
-                    </TouchableOpacity>
-                  )
-                )}
-                {!isAudio && (
-                  <Text style={styles.theirText}>{item.text}</Text>
-                )}
-                <View style={styles.timeRow}>
-                  <Text style={styles.theirTimeText}>{item.time}</Text>
-                </View>
-              </View>
-            )}
-          </TouchableOpacity>
+              )}
+            </TouchableOpacity>
+          </SwipeableMessage>
         </View>
       </View>
     );
@@ -519,18 +799,28 @@ export default function ChatScreen() {
   return (
     <LinearGradient colors={["#0F172A", "#0D1117"]} style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1 }}>
+        <StatusBar barStyle="light-content" backgroundColor="#0F172A" />
+
+        {/* ── KeyboardAvoidingView wraps ONLY the content below the header ── */}
         <KeyboardAvoidingView
           style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          // FIX: Use "padding" on BOTH platforms — "height" on Android causes the
+          // container to not fully restore its original size after keyboard dismiss.
+          behavior="padding"
+          // FIX: On Android, offset by 0 so padding is applied cleanly.
+          keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
         >
-          <StatusBar barStyle="light-content" backgroundColor="#0F172A" />
-
-          {/* ── Header ── */}
-          <Animated.View style={[styles.header, { opacity: headerAnim, transform: [{ translateY: headerAnim.interpolate({ inputRange: [0, 1], outputRange: [-20, 0] }) }] }]}>
-            <LinearGradient
-              colors={["#1A1F35", "#141929"]}
-              style={styles.headerGradient}
-            >
+          {/* ── Header lives INSIDE KeyboardAvoidingView but is NOT affected by it ── */}
+          <Animated.View
+            style={[
+              styles.header,
+              {
+                opacity: headerAnim,
+                transform: [{ translateY: headerAnim.interpolate({ inputRange: [0, 1], outputRange: [-20, 0] }) }],
+              },
+            ]}
+          >
+            <LinearGradient colors={["#1A1F35", "#141929"]} style={styles.headerGradient}>
               <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
                 <Ionicons name="chevron-back" size={26} color="#E2E8F0" />
               </TouchableOpacity>
@@ -578,88 +868,115 @@ export default function ChatScreen() {
             </LinearGradient>
           </Animated.View>
 
-          {/* ── Messages ── */}
-          <View style={{ flex: 1 }}>
-            <FlatList
-              ref={flatListRef}
-              data={[...messages].reverse()}
-              renderItem={renderMessage}
-              keyExtractor={(item, index) => `${item.id}-${index}`}
-              style={styles.messagesList}
-              contentContainerStyle={styles.messagesContent}
-              initialNumToRender={20}
-              maxToRenderPerBatch={10}
-              windowSize={10}
-              removeClippedSubviews={true}
-              inverted
-            />
-
-            {/* ── Input Bar ── */}
-            <View style={styles.inputWrapper}>
-              <LinearGradient colors={["#1A1F35", "#141929"]} style={styles.inputContainer}>
-                <TouchableOpacity style={styles.attachButton} onPress={handleAttachImage}>
-                  <Ionicons name="image-outline" size={22} color="#6366F1" />
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.attachButton} onPress={handleAttachFile}>
-                  <Ionicons name="attach" size={22} color="#6366F1" />
-                </TouchableOpacity>
-
-                {isRecording ? (
-                  <View style={styles.recordingIndicator}>
-                    <Animated.View style={[styles.recordingDot, { opacity: pulseAnim }]} />
-                    <Text style={styles.recordingTime}>
-                      {`${String(Math.floor(recordingDuration / 60)).padStart(2, "0")}:${String(recordingDuration % 60).padStart(2, "0")}`}
-                    </Text>
-                    <View style={styles.recordingBars}>
-                      {[4, 10, 14, 7, 12, 6, 16, 5, 11, 8, 14, 6, 10, 4, 13, 9, 7, 11].map((h, i) => (
-                        <View key={i} style={[styles.recordingBar, { height: h }]} />
-                      ))}
-                    </View>
-                  </View>
-                ) : (
-                  <TextInput
-                    style={styles.input}
-                    placeholder={`Message ${chatName}...`}
-                    placeholderTextColor="#475569"
-                    value={messageText}
-                    onChangeText={setMessageText}
-                    multiline
-                    maxLength={1000}
-                    editable={!isSending}
-                    textAlignVertical="center"
-                  />
-                )}
-
-                {messageText.trim() ? (
-                  <TouchableOpacity
-                    style={[styles.sendButton, (isSending || isInitializing) && { opacity: 0.5 }]}
-                    onPress={handleSendMessage}
-                    disabled={isSending || isInitializing}
-                  >
-                    <LinearGradient colors={["#7C3AED", "#6D28D9"]} style={styles.sendButtonGradient}>
-                      {isSending || isInitializing ? (
-                        <ActivityIndicator color="white" size="small" />
-                      ) : (
-                        <Ionicons name="send" size={18} color="white" />
-                      )}
-                    </LinearGradient>
-                  </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity
-                    style={[styles.micButton, isRecording && styles.activeMicButton]}
-                    onLongPress={startRecording}
-                    onPressOut={stopRecording}
-                    delayLongPress={200}
-                  >
-                    <Ionicons
-                      name={isRecording ? "radio-button-on" : "mic-outline"}
-                      size={22}
-                      color={isRecording ? "#EF4444" : "#6366F1"}
-                    />
-                  </TouchableOpacity>
-                )}
-              </LinearGradient>
+          {/* ── Messages List ── */}
+          {/* FIX: TouchableWithoutFeedback wraps the FlatList so tapping the
+              message area dismisses the keyboard cleanly without any layout jump. */}
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+            <View style={{ flex: 1 }}>
+              <FlatList
+                ref={flatListRef}
+                data={[...messages].reverse()}
+                renderItem={renderMessage}
+                keyExtractor={(item, index) => `${item.id}-${index}`}
+                style={styles.messagesList}
+                contentContainerStyle={styles.messagesContent}
+                initialNumToRender={20}
+                maxToRenderPerBatch={10}
+                windowSize={10}
+                removeClippedSubviews={true}
+                inverted
+                // FIX: Allows taps on messages to register while also letting the
+                // keyboard dismiss when tapping empty space.
+                keyboardShouldPersistTaps="handled"
+                // FIX: Prevents the list from automatically scrolling / jumping
+                // when the keyboard appears or disappears.
+                automaticallyAdjustKeyboardInsets={false}
+                automaticallyAdjustsScrollIndicatorInsets={false}
+              />
             </View>
+          </TouchableWithoutFeedback>
+
+          {/* ── Input Bar ── */}
+          <View style={styles.inputWrapper}>
+            {replyingTo && (
+              <View style={styles.replyBanner}>
+                <View style={styles.replyBannerIcon}>
+                  <Ionicons name="arrow-undo-outline" size={18} color="#8B5CF6" />
+                </View>
+                <View style={styles.replyBannerTextContainer}>
+                  <Text style={styles.replyBannerLabel}>
+                    Replying to <Text style={styles.replyBannerLabelBold}>{replyingTo.sender}</Text>
+                  </Text>
+                  <Text style={styles.replyBannerText} numberOfLines={1}>{replyingTo.text}</Text>
+                </View>
+                <TouchableOpacity onPress={cancelReply} style={styles.replyCancelButton}>
+                  <Ionicons name="close-circle" size={20} color="#94A3B8" />
+                </TouchableOpacity>
+              </View>
+            )}
+            <LinearGradient colors={["#1A1F35", "#141929"]} style={styles.inputContainer}>
+              <TouchableOpacity style={styles.attachButton} onPress={handleAttachImage}>
+                <Ionicons name="image-outline" size={22} color="#6366F1" />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.attachButton} onPress={handleAttachFile}>
+                <Ionicons name="attach" size={22} color="#6366F1" />
+              </TouchableOpacity>
+
+              {isRecording ? (
+                <View style={styles.recordingIndicator}>
+                  <Animated.View style={[styles.recordingDot, { opacity: pulseAnim }]} />
+                  <Text style={styles.recordingTime}>
+                    {`${String(Math.floor(recordingDuration / 60)).padStart(2, "0")}:${String(recordingDuration % 60).padStart(2, "0")}`}
+                  </Text>
+                  <View style={styles.recordingBars}>
+                    {[4, 10, 14, 7, 12, 6, 16, 5, 11, 8, 14, 6, 10, 4, 13, 9, 7, 11].map((h, i) => (
+                      <View key={i} style={[styles.recordingBar, { height: h }]} />
+                    ))}
+                  </View>
+                </View>
+              ) : (
+                <TextInput
+                  style={styles.input}
+                  placeholder={`Message ${chatName}...`}
+                  placeholderTextColor="#475569"
+                  value={messageText}
+                  onChangeText={setMessageText}
+                  multiline
+                  maxLength={1000}
+                  editable={!isSending}
+                  textAlignVertical="center"
+                />
+              )}
+
+              {messageText.trim() ? (
+                <TouchableOpacity
+                  style={[styles.sendButton, (isSending || isInitializing) && { opacity: 0.5 }]}
+                  onPress={handleSendMessage}
+                  disabled={isSending || isInitializing}
+                >
+                  <LinearGradient colors={["#7C3AED", "#6D28D9"]} style={styles.sendButtonGradient}>
+                    {isSending || isInitializing ? (
+                      <ActivityIndicator color="white" size="small" />
+                    ) : (
+                      <Ionicons name="send" size={18} color="white" />
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.micButton, isRecording && styles.activeMicButton]}
+                  onLongPress={startRecording}
+                  onPressOut={stopRecording}
+                  delayLongPress={200}
+                >
+                  <Ionicons
+                    name={isRecording ? "radio-button-on" : "mic-outline"}
+                    size={22}
+                    color={isRecording ? "#EF4444" : "#6366F1"}
+                  />
+                </TouchableOpacity>
+              )}
+            </LinearGradient>
           </View>
         </KeyboardAvoidingView>
 
@@ -871,9 +1188,49 @@ const styles = StyleSheet.create({
   /* ── Bubbles ── */
   bubble: { maxWidth: "78%", borderRadius: 20, overflow: "hidden" },
   imageBubble: { borderRadius: 16 },
-  myBubble: { borderBottomRightRadius: 4 },
-  theirBubble: { borderBottomLeftRadius: 4, backgroundColor: "#1E293B", borderWidth: 1, borderColor: "rgba(99,102,241,0.12)" },
+  myBubble: { borderBottomRightRadius: 4, alignSelf: "flex-end" },
+  theirBubble: { borderBottomLeftRadius: 4, backgroundColor: "#1E293B", borderWidth: 1, borderColor: "rgba(99,102,241,0.12)", alignSelf: "flex-start" },
   bubbleInner: { paddingHorizontal: 14, paddingVertical: 10 },
+  replyQuoteContainer: {
+    borderRadius: 12,
+    borderLeftWidth: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: 6,
+    maxWidth: "100%",
+  },
+  myReplyQuoteContainer: {
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    borderLeftColor: "#E9D5FF",
+  },
+  theirReplyQuoteContainer: {
+    backgroundColor: "rgba(15, 23, 42, 0.4)",
+    borderLeftColor: "#8B5CF6",
+  },
+  replyQuoteContent: {
+    flexDirection: "column",
+  },
+  replyQuoteLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    marginBottom: 1,
+  },
+  myReplyQuoteLabel: {
+    color: "#DDD6FE",
+  },
+  theirReplyQuoteLabel: {
+    color: "#A78BFA",
+  },
+  replyQuoteText: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  myReplyQuoteText: {
+    color: "rgba(255, 255, 255, 0.8)",
+  },
+  theirReplyQuoteText: {
+    color: "#94A3B8",
+  },
   myText: { color: "#F1F5F9", fontSize: 15, lineHeight: 22 },
   theirText: { color: "#CBD5E1", fontSize: 15, lineHeight: 22 },
   messageImage: { width: 220, height: 220, borderRadius: 14, marginBottom: 6 },
@@ -881,8 +1238,57 @@ const styles = StyleSheet.create({
   myTimeText: { fontSize: 11, color: "rgba(255,255,255,0.55)" },
   theirTimeText: { fontSize: 11, color: "#475569" },
 
+  swipeContainer: {
+    position: "relative",
+    overflow: "visible",
+    flex: 1,
+  },
+  replyIconLeft: {
+    position: "absolute",
+    left: 12,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+    width: 30,
+    zIndex: 1,
+  },
+  replyIconRight: {
+    position: "absolute",
+    right: 12,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+    width: 30,
+    zIndex: 1,
+  },
+
   /* ── Input ── */
   inputWrapper: { paddingHorizontal: 12, paddingBottom: Platform.OS === "ios" ? 10 : 14, paddingTop: 8 },
+  replyBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(30, 41, 59, 0.7)",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(99, 102, 241, 0.2)",
+    borderLeftWidth: 4,
+    borderLeftColor: "#8B5CF6",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  replyBannerIcon: {
+    marginRight: 10,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  replyBannerTextContainer: { flex: 1, paddingRight: 10 },
+  replyBannerLabel: { color: "#94A3B8", fontSize: 11, marginBottom: 1 },
+  replyBannerLabelBold: { fontWeight: "700", color: "#DDD6FE" },
+  replyBannerText: { color: "#E2E8F0", fontSize: 13, lineHeight: 16 },
+  replyCancelButton: { padding: 4 },
   inputContainer: {
     flexDirection: "row",
     alignItems: "flex-end",
