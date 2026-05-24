@@ -174,6 +174,20 @@ const conversationsService = {
       );
     }
   },
+
+  /**
+   * Delete a message (unsend)
+   */
+  deleteMessage: async (messageId: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await apiClient.delete(`/messages/${messageId}`);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(
+        error.response?.data?.message || "Failed to delete message",
+      );
+    }
+  },
 };
 
 export default conversationsService;

@@ -137,6 +137,13 @@ class SocketService {
       console.log("👀 Messages seen by server:", JSON.stringify(data));
       this.notifyListeners("messages_seen", data);
     });
+
+    const handleMessageDeleted = (data: any) => {
+      console.log("🗑️ Message deleted from server:", JSON.stringify(data));
+      this.notifyListeners("message_deleted", data);
+    };
+    this.socket.on("messageDeleted", handleMessageDeleted);
+    this.socket.on("message_deleted", handleMessageDeleted);
     // ─────────────────────────────────────────────────────────────────────
 
     this.socket.on("incomingCall", (data) => {
@@ -269,8 +276,12 @@ class SocketService {
   /**
    * Send typing indicator
    */
-  sendTyping(conversationId: string, isTyping: boolean): void {
-    this.emit("user_typing", { conversationId, isTyping });
+  sendTyping(conversationId: string, receiverId: string, isTyping: boolean): void {
+    if (isTyping) {
+      this.emit("typing", { conversationId, receiverId });
+    } else {
+      this.emit("stopTyping", { conversationId, receiverId });
+    }
   }
 
   /**

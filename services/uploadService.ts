@@ -57,6 +57,23 @@ const uploadService = {
       throw error;
     }
   },
+
+  /**
+   * Delete an uploaded file directly from Cloudinary
+   */
+  deleteFile: async (publicId: string, fileType: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await apiClient.post("/upload/delete", {
+        publicId,
+        fileType,
+      });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(
+        error.response?.data?.message || "Failed to delete uploaded file",
+      );
+    }
+  },
 };
 
 export default uploadService;

@@ -224,6 +224,42 @@ const getReplySenderName = (
   return "User";
 };
 
+const AnimatedDot = ({ delay }: { delay: number }) => {
+  const yVal = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.delay(delay),
+        Animated.timing(yVal, {
+          toValue: -5,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(yVal, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.delay(400),
+      ])
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [delay, yVal]);
+
+  return (
+    <Animated.View
+      style={[
+        styles.typingDot,
+        {
+          transform: [{ translateY: yVal }],
+        },
+      ]}
+    />
+  );
+};
+
 export default function ChatScreen() {
   const router = useRouter();
   const navigation = useNavigation();
@@ -254,11 +290,24 @@ export default function ChatScreen() {
   const [selectedPreviewImage, setSelectedPreviewImage] = useState<string | null>(null);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<{ id: string; text: string; sender: string; senderId: string } | null>(null);
+  const [recordedAudioPreview, setRecordedAudioPreview] = useState<{
+    uri: string;
+    duration: number;
+    isUploading: boolean;
+    uploadResult?: any;
+  } | null>(null);
+  const [previewSound, setPreviewSound] = useState<Audio.Sound | null>(null);
+  const [isPlayingPreview, setIsPlayingPreview] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const conversationIdRef = useRef<string | null>(conversationId);
+  const inputRef = useRef<TextInput>(null);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const headerAnim = useRef(new Animated.Value(0)).current;
+
+  const [isOpponentTyping, setIsOpponentTyping] = useState(false);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isCurrentlyTypingRef = useRef(false);
 
   useEffect(() => {
     if (messages.length === 0) return;
@@ -372,6 +421,76 @@ export default function ChatScreen() {
     return () => { unsubscribeMessage(); };
   }, [user]);
 
+  const sendTypingStatus = useCallback((isTyping: boolean) => {
+    if (!conversationId || !targetUserId) return;
+    socketService.sendTyping(conversationId, targetUserId, isTyping);
+    isCurrentlyTypingRef.current = isTyping;
+  }, [conversationId, targetUserId]);
+
+  const handleTextChange = (text: string) => {
+    setMessageText(text);
+
+    if (!isCurrentlyTypingRef.current) {
+      sendTypingStatus(true);
+    }
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    typingTimeoutRef.current = setTimeout(() => {
+      sendTypingStatus(false);
+    }, 3000);
+  };
+
+  const handleFocus = () => {
+    sendTypingStatus(true);
+  };
+
+  const handleBlur = () => {
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+    sendTypingStatus(false);
+  };
+
+  useEffect(() => {
+    const unsubscribeTyping = socketService.on("user_typing", (data: any) => {
+      const incomingConvId = data.conversationId?.toString();
+      const currentConvId = conversationIdRef.current?.toString();
+      const senderId = data.senderId?.toString();
+      if (incomingConvId === currentConvId && senderId === targetUserId?.toString()) {
+        setIsOpponentTyping(true);
+      }
+    });
+
+    const unsubscribeStoppedTyping = socketService.on("user_stopped_typing", (data: any) => {
+      const incomingConvId = data.conversationId?.toString();
+      const currentConvId = conversationIdRef.current?.toString();
+      const senderId = data.senderId?.toString();
+      if (incomingConvId === currentConvId && senderId === targetUserId?.toString()) {
+        setIsOpponentTyping(false);
+      }
+    });
+
+    return () => {
+      unsubscribeTyping();
+      unsubscribeStoppedTyping();
+    };
+  }, [targetUserId]);
+
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      if (isCurrentlyTypingRef.current && conversationIdRef.current && targetUserId) {
+        socketService.sendTyping(conversationIdRef.current, targetUserId, false);
+      }
+    };
+  }, [targetUserId]);
+
   useEffect(() => {
     const unsubscribeSeen = socketService.on("messages_seen", (data: any) => {
       const currentConvId = conversationIdRef.current?.toString();
@@ -386,6 +505,16 @@ export default function ChatScreen() {
       }
     });
     return () => { unsubscribeSeen(); };
+  }, []);
+
+  useEffect(() => {
+    const unsubscribeDelete = socketService.on("message_deleted", (data: any) => {
+      const deletedMsgId = data.messageId || data.id || data;
+      if (deletedMsgId) {
+        setMessages(prev => prev.filter(msg => msg.id !== deletedMsgId.toString()));
+      }
+    });
+    return () => { unsubscribeDelete(); };
   }, []);
 
   useEffect(() => {
@@ -425,6 +554,11 @@ export default function ChatScreen() {
 
   const handleSendMessage = async () => {
     if (!messageText.trim() || !conversationId) return;
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+    sendTypingStatus(false);
     try {
       setIsSending(true);
       const tempId = Date.now().toString();
@@ -524,6 +658,11 @@ export default function ChatScreen() {
       sender: message.isMe ? "You" : chatName,
       senderId: replySenderId || "",
     });
+
+    // Auto-focus the input field to automatically open the keyboard
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 50);
   };
 
   const handleAudioCall = () => {
@@ -579,7 +718,35 @@ export default function ChatScreen() {
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
       setRecording(null);
-      if (uri) await sendFileMessage(uri, "audio", capturedDuration);
+      if (uri) {
+        // Set preview state first with isUploading: true
+        setRecordedAudioPreview({
+          uri,
+          duration: capturedDuration,
+          isUploading: true,
+        });
+
+        // Trigger background pre-upload
+        uploadService.uploadFile(uri, "voice-message").then((uploadResult) => {
+          setRecordedAudioPreview(prev => {
+            if (!prev || prev.uri !== uri) return prev; // Avoid setting if it has already been cancelled
+            return {
+              ...prev,
+              isUploading: false,
+              uploadResult,
+            };
+          });
+        }).catch((err) => {
+          console.error("Background upload failed:", err);
+          setRecordedAudioPreview(prev => {
+            if (!prev || prev.uri !== uri) return prev;
+            return {
+              ...prev,
+              isUploading: false,
+            };
+          });
+        });
+      }
     } catch (err) {
       console.error("Failed to stop recording", err);
     }
@@ -644,6 +811,173 @@ export default function ChatScreen() {
     } finally {
       setIsSending(false);
     }
+  };
+
+  // Voice Preview play/pause
+  const playPreview = async () => {
+    if (!recordedAudioPreview) return;
+    try {
+      if (previewSound) {
+        if (isPlayingPreview) {
+          await previewSound.pauseAsync();
+          setIsPlayingPreview(false);
+        } else {
+          await previewSound.playAsync();
+          setIsPlayingPreview(true);
+        }
+      } else {
+        await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: recordedAudioPreview.uri },
+          { shouldPlay: true },
+          (status) => {
+            if (status.isLoaded && status.didJustFinish) {
+              setIsPlayingPreview(false);
+              sound.setPositionAsync(0);
+            }
+          }
+        );
+        setPreviewSound(sound);
+        setIsPlayingPreview(true);
+      }
+    } catch (error) {
+      console.error("Error playing preview sound:", error);
+    }
+  };
+
+  const stopPreview = async () => {
+    if (previewSound) {
+      try {
+        await previewSound.stopAsync();
+        await previewSound.unloadAsync();
+      } catch (_) {}
+      setPreviewSound(null);
+      setIsPlayingPreview(false);
+    }
+  };
+
+  // Discard/Delete voice preview
+  const handleDeleteAudioPreview = async () => {
+    if (!recordedAudioPreview) return;
+    const previewToDiscard = recordedAudioPreview;
+    
+    // Clean up local playback
+    await stopPreview();
+    setRecordedAudioPreview(null);
+
+    // If it has already finished uploading, delete from Cloudinary
+    if (previewToDiscard.uploadResult?.publicId) {
+      try {
+        await uploadService.deleteFile(
+          previewToDiscard.uploadResult.publicId,
+          "audio"
+        );
+      } catch (err) {
+        console.error("Error cleaning up Cloudinary file on discard:", err);
+      }
+    }
+  };
+
+  // Send voice preview
+  const handleSendAudioPreview = async () => {
+    if (!recordedAudioPreview || !conversationId) return;
+    
+    if (recordedAudioPreview.isUploading) {
+      Alert.alert("Uploading", "Please wait for the audio to finish uploading.");
+      return;
+    }
+
+    if (!recordedAudioPreview.uploadResult?.url) {
+      Alert.alert("Upload Failed", "Audio upload failed. Please delete and record again.");
+      return;
+    }
+
+    try {
+      setIsSending(true);
+      const publicUrl = recordedAudioPreview.uploadResult.url;
+      const audioDuration = recordedAudioPreview.duration;
+      
+      const replyData = replyingTo ? {
+        id: replyingTo.id,
+        text: replyingTo.text,
+        sender: replyingTo.sender,
+        senderId: replyingTo.senderId
+      } : null;
+      setReplyingTo(null);
+      
+      // Clean up local preview sound
+      await stopPreview();
+      setRecordedAudioPreview(null);
+
+      const sentMsg = await conversationsService.sendMessage(
+        conversationId,
+        "🎵 Voice Message",
+        publicUrl,
+        "audio",
+        recordedAudioPreview.uploadResult.fileName || "voice-message.mp3",
+        undefined,
+        audioDuration,
+        replyData?.id,
+        replyData?.text,
+        replyData?.senderId
+      );
+
+      const newMessage: Message = {
+        replyToMessageId: replyData?.id,
+        replyToText: replyData?.text,
+        replyToSender: replyData?.sender,
+        replyToSenderId: replyData?.senderId,
+        id: sentMsg.id || (sentMsg as any)._id,
+        text: "🎵 Voice Message",
+        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        isMe: true,
+        timestamp: new Date().toISOString(),
+        fileUrl: publicUrl,
+        fileType: "audio",
+        audioDuration,
+      };
+      setMessages(prev => [...prev, newMessage]);
+
+      socketService.emit("send_message", {
+        conversationId,
+        message: "🎵 Voice Message",
+        fileUrl: publicUrl,
+        fileType: "audio",
+        senderId: user?.id || user?._id,
+        audioDuration,
+        replyToMessageId: replyData?.id,
+        replyToText: replyData?.text,
+        replyToSenderId: replyData?.senderId,
+      });
+    } catch (error) {
+      Alert.alert("Error", "Failed to send voice message");
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleLongPressMessage = (message: Message) => {
+    if (!message.isMe) return; // Only allow unsending own messages
+
+    Alert.alert(
+      "Unsend Message",
+      "Are you sure you want to unsend this message?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Unsend",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await conversationsService.deleteMessage(message.id);
+              setMessages(prev => prev.filter(msg => msg.id !== message.id));
+            } catch (error) {
+              Alert.alert("Error", "Failed to unsend message");
+            }
+          }
+        }
+      ]
+    );
   };
 
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
@@ -729,6 +1063,7 @@ export default function ChatScreen() {
             <TouchableOpacity
               activeOpacity={0.85}
               onPress={() => setSelectedMessageId(prev => prev === item.id ? null : item.id)}
+              onLongPress={() => handleLongPressMessage(item)}
               style={[styles.bubble, item.isMe ? styles.myBubble : styles.theirBubble, isImageOnly && styles.imageBubble]}
             >
               {item.isMe ? (
@@ -838,8 +1173,13 @@ export default function ChatScreen() {
                 </View>
                 <View style={{ marginLeft: 10 }}>
                   <Text style={styles.headerName}>{chatName}</Text>
-                  <Text style={[styles.status, isRecipientOnline && styles.onlineStatus]}>
-                    {isRecipientOnline
+                  <Text style={[
+                    styles.status, 
+                    isOpponentTyping ? styles.typingStatus : (isRecipientOnline && styles.onlineStatus)
+                  ]}>
+                    {isOpponentTyping
+                      ? "typing..."
+                      : isRecipientOnline
                       ? "● Online"
                       : lastSeen
                       ? `Last seen ${new Date(lastSeen).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
@@ -898,6 +1238,18 @@ export default function ChatScreen() {
 
           {/* ── Input Bar ── */}
           <View style={styles.inputWrapper}>
+            {isOpponentTyping && (
+              <View style={styles.typingIndicatorContainer}>
+                <View style={styles.typingBubble}>
+                  <View style={styles.typingDotsContainer}>
+                    <AnimatedDot delay={0} />
+                    <AnimatedDot delay={150} />
+                    <AnimatedDot delay={300} />
+                  </View>
+                  <Text style={styles.typingText}>{chatName} is typing...</Text>
+                </View>
+              </View>
+            )}
             {replyingTo && (
               <View style={styles.replyBanner}>
                 <View style={styles.replyBannerIcon}>
@@ -914,69 +1266,114 @@ export default function ChatScreen() {
                 </TouchableOpacity>
               </View>
             )}
-            <LinearGradient colors={["#1A1F35", "#141929"]} style={styles.inputContainer}>
-              <TouchableOpacity style={styles.attachButton} onPress={handleAttachImage}>
-                <Ionicons name="image-outline" size={22} color="#6366F1" />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.attachButton} onPress={handleAttachFile}>
-                <Ionicons name="attach" size={22} color="#6366F1" />
-              </TouchableOpacity>
+            {recordedAudioPreview ? (
+              <LinearGradient colors={["#1E293B", "#0F172A"]} style={styles.previewBannerContainer}>
+                {/* Trash/Delete Button */}
+                <TouchableOpacity onPress={handleDeleteAudioPreview} style={styles.previewDiscardBtn}>
+                  <Ionicons name="trash-outline" size={22} color="#EF4444" />
+                </TouchableOpacity>
 
-              {isRecording ? (
-                <View style={styles.recordingIndicator}>
-                  <Animated.View style={[styles.recordingDot, { opacity: pulseAnim }]} />
-                  <Text style={styles.recordingTime}>
-                    {`${String(Math.floor(recordingDuration / 60)).padStart(2, "0")}:${String(recordingDuration % 60).padStart(2, "0")}`}
-                  </Text>
-                  <View style={styles.recordingBars}>
-                    {[4, 10, 14, 7, 12, 6, 16, 5, 11, 8, 14, 6, 10, 4, 13, 9, 7, 11].map((h, i) => (
-                      <View key={i} style={[styles.recordingBar, { height: h }]} />
-                    ))}
+                {/* Audio Preview controls */}
+                <View style={styles.previewPlaybackContainer}>
+                  <TouchableOpacity onPress={playPreview} style={styles.previewPlayBtn}>
+                    <Ionicons name={isPlayingPreview ? "pause" : "play"} size={20} color="white" />
+                  </TouchableOpacity>
+                  
+                  {/* Visual tracker & Upload status */}
+                  <View style={styles.previewWaveContainer}>
+                    <Text style={styles.previewDurationText}>
+                      Voice Message • {`${String(Math.floor(recordedAudioPreview.duration / 60)).padStart(2, "0")}:${String(recordedAudioPreview.duration % 60).padStart(2, "0")}`}
+                    </Text>
+                    {recordedAudioPreview.isUploading ? (
+                      <View style={styles.uploadingStateContainer}>
+                        <ActivityIndicator size="small" color="#8B5CF6" style={{ marginRight: 6 }} />
+                        <Text style={styles.uploadingStateText}>Uploading...</Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.uploadingStateTextReady}>Ready to send</Text>
+                    )}
                   </View>
                 </View>
-              ) : (
-                <TextInput
-                  style={styles.input}
-                  placeholder={`Message ${chatName}...`}
-                  placeholderTextColor="#475569"
-                  value={messageText}
-                  onChangeText={setMessageText}
-                  multiline
-                  maxLength={1000}
-                  editable={!isSending}
-                  textAlignVertical="center"
-                />
-              )}
 
-              {messageText.trim() ? (
+                {/* Send Button */}
                 <TouchableOpacity
-                  style={[styles.sendButton, (isSending || isInitializing) && { opacity: 0.5 }]}
-                  onPress={handleSendMessage}
-                  disabled={isSending || isInitializing}
+                  onPress={handleSendAudioPreview}
+                  disabled={recordedAudioPreview.isUploading}
+                  style={[styles.previewSendBtn, recordedAudioPreview.isUploading && { opacity: 0.5 }]}
                 >
-                  <LinearGradient colors={["#7C3AED", "#6D28D9"]} style={styles.sendButtonGradient}>
-                    {isSending || isInitializing ? (
-                      <ActivityIndicator color="white" size="small" />
-                    ) : (
-                      <Ionicons name="send" size={18} color="white" />
-                    )}
+                  <LinearGradient colors={["#7C3AED", "#6D28D9"]} style={styles.previewSendBtnGradient}>
+                    <Ionicons name="send" size={18} color="white" />
                   </LinearGradient>
                 </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={[styles.micButton, isRecording && styles.activeMicButton]}
-                  onLongPress={startRecording}
-                  onPressOut={stopRecording}
-                  delayLongPress={200}
-                >
-                  <Ionicons
-                    name={isRecording ? "radio-button-on" : "mic-outline"}
-                    size={22}
-                    color={isRecording ? "#EF4444" : "#6366F1"}
-                  />
+              </LinearGradient>
+            ) : (
+              <LinearGradient colors={["#1A1F35", "#141929"]} style={styles.inputContainer}>
+                <TouchableOpacity style={styles.attachButton} onPress={handleAttachImage}>
+                  <Ionicons name="image-outline" size={22} color="#6366F1" />
                 </TouchableOpacity>
-              )}
-            </LinearGradient>
+                <TouchableOpacity style={styles.attachButton} onPress={handleAttachFile}>
+                  <Ionicons name="attach" size={22} color="#6366F1" />
+                </TouchableOpacity>
+
+                {isRecording ? (
+                  <View style={styles.recordingIndicator}>
+                    <Animated.View style={[styles.recordingDot, { opacity: pulseAnim }]} />
+                    <Text style={styles.recordingTime}>
+                      {`${String(Math.floor(recordingDuration / 60)).padStart(2, "0")}:${String(recordingDuration % 60).padStart(2, "0")}`}
+                    </Text>
+                    <View style={styles.recordingBars}>
+                      {[4, 10, 14, 7, 12, 6, 16, 5, 11, 8, 14, 6, 10, 4, 13, 9, 7, 11].map((h, i) => (
+                        <View key={i} style={[styles.recordingBar, { height: h }]} />
+                      ))}
+                    </View>
+                  </View>
+                ) : (
+                  <TextInput
+                    ref={inputRef}
+                    style={styles.input}
+                    placeholder={`Message ${chatName}...`}
+                    placeholderTextColor="#475569"
+                    value={messageText}
+                    onChangeText={handleTextChange}
+                    onFocus={handleFocus}
+                    onBlur={handleBlur}
+                    multiline
+                    maxLength={1000}
+                    editable={!isSending}
+                    textAlignVertical="center"
+                  />
+                )}
+
+                {messageText.trim() ? (
+                  <TouchableOpacity
+                    style={[styles.sendButton, (isSending || isInitializing) && { opacity: 0.5 }]}
+                    onPress={handleSendMessage}
+                    disabled={isSending || isInitializing}
+                  >
+                    <LinearGradient colors={["#7C3AED", "#6D28D9"]} style={styles.sendButtonGradient}>
+                      {isSending || isInitializing ? (
+                        <ActivityIndicator color="white" size="small" />
+                      ) : (
+                        <Ionicons name="send" size={18} color="white" />
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    style={[styles.micButton, isRecording && styles.activeMicButton]}
+                    onLongPress={startRecording}
+                    onPressOut={stopRecording}
+                    delayLongPress={200}
+                  >
+                    <Ionicons
+                      name={isRecording ? "radio-button-on" : "mic-outline"}
+                      size={22}
+                      color={isRecording ? "#EF4444" : "#6366F1"}
+                    />
+                  </TouchableOpacity>
+                )}
+              </LinearGradient>
+            )}
           </View>
         </KeyboardAvoidingView>
 
@@ -1149,6 +1546,7 @@ const styles = StyleSheet.create({
   headerName: { color: "#F1F5F9", fontSize: 16, fontWeight: "700", letterSpacing: 0.2 },
   status: { color: "#64748B", fontSize: 12, marginTop: 1 },
   onlineStatus: { color: "#10B981", fontWeight: "600" },
+  typingStatus: { color: "#A78BFA", fontWeight: "600" },
   headerActions: { flexDirection: "row", gap: 6 },
   iconButton: {},
   iconButtonGradient: {
@@ -1265,6 +1663,40 @@ const styles = StyleSheet.create({
   },
 
   /* ── Input ── */
+  typingIndicatorContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    alignItems: "flex-start",
+  },
+  typingBubble: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(30, 41, 59, 0.7)",
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomLeftRadius: 4,
+    borderWidth: 1,
+    borderColor: "rgba(99, 102, 241, 0.2)",
+  },
+  typingDotsContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginRight: 8,
+    height: 10,
+  },
+  typingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#A78BFA",
+    marginHorizontal: 2,
+  },
+  typingText: {
+    color: "#94A3B8",
+    fontSize: 12,
+    fontWeight: "500",
+  },
   inputWrapper: { paddingHorizontal: 12, paddingBottom: Platform.OS === "ios" ? 10 : 14, paddingTop: 8 },
   replyBanner: {
     flexDirection: "row",
@@ -1314,6 +1746,78 @@ const styles = StyleSheet.create({
   sendButtonGradient: { width: 40, height: 40, borderRadius: 20, justifyContent: "center", alignItems: "center" },
   micButton: { padding: 8, marginBottom: 2 },
   activeMicButton: { backgroundColor: "rgba(239,68,68,0.12)", borderRadius: 20 },
+
+  /* ── Voice Message Preview Banner ── */
+  previewBannerContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 28,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    minHeight: 52,
+    borderWidth: 1,
+    borderColor: "rgba(99,102,241,0.2)",
+  },
+  previewDiscardBtn: {
+    padding: 8,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  previewPlaybackContainer: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 10,
+    backgroundColor: "rgba(30, 41, 59, 0.4)",
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  previewPlayBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#6366F1",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 10,
+  },
+  previewWaveContainer: {
+    flex: 1,
+    justifyContent: "center",
+  },
+  previewDurationText: {
+    color: "#E2E8F0",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  uploadingStateContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 2,
+  },
+  uploadingStateText: {
+    color: "#8B5CF6",
+    fontSize: 11,
+    fontWeight: "500",
+  },
+  uploadingStateTextReady: {
+    color: "#10B981",
+    fontSize: 11,
+    fontWeight: "500",
+    marginTop: 2,
+  },
+  previewSendBtn: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  previewSendBtnGradient: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: "center",
+    alignItems: "center",
+  },
 
   /* ── Recording ── */
   recordingIndicator: { flex: 1, flexDirection: "row", alignItems: "center", paddingHorizontal: 8, minHeight: 40 },

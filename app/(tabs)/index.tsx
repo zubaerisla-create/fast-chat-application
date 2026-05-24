@@ -63,6 +63,7 @@ export default function App() {
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [typingConversations, setTypingConversations] = useState<{ [conversationId: string]: boolean }>({});
 
   // Load all users and conversations on component mount
   useEffect(() => {
@@ -107,6 +108,28 @@ export default function App() {
     });
 
     return () => unsubscribe();
+  }, []);
+
+  // Real-time: update conversation list typing status
+  useEffect(() => {
+    const unsubscribeTyping = socketService.on("user_typing", (data: any) => {
+      const convId = data.conversationId?.toString();
+      if (convId) {
+        setTypingConversations(prev => ({ ...prev, [convId]: true }));
+      }
+    });
+
+    const unsubscribeStoppedTyping = socketService.on("user_stopped_typing", (data: any) => {
+      const convId = data.conversationId?.toString();
+      if (convId) {
+        setTypingConversations(prev => ({ ...prev, [convId]: false }));
+      }
+    });
+
+    return () => {
+      unsubscribeTyping();
+      unsubscribeStoppedTyping();
+    };
   }, []);
 
   const loadConversations = async () => {
@@ -196,6 +219,9 @@ export default function App() {
       message = typeof item.lastMessage === "string" ? item.lastMessage : (item.lastMessage.text || "New message");
     }
 
+    const convId = (item.id || item._id)?.toString();
+    const isTyping = !isUser && convId ? typingConversations[convId] : false;
+
     const avatar = isUser 
       ? (item.avatar || name.charAt(0).toUpperCase()) 
       : (otherParticipant?.avatar || item.participantAvatar || name.charAt(0).toUpperCase());
@@ -240,7 +266,9 @@ export default function App() {
           <View style={styles.nameContainer}>
             <Text style={styles.chatName}>{name}</Text>
           </View>
-          <Text style={styles.chatMessage} numberOfLines={1}>{message}</Text>
+          <Text style={[styles.chatMessage, isTyping && styles.typingText]} numberOfLines={1}>
+            {isTyping ? "typing..." : message}
+          </Text>
         </View>
         {time ? <Text style={styles.time}>{time}</Text> : null}
       </TouchableOpacity>
@@ -537,6 +565,7 @@ const styles = StyleSheet.create({
   nameContainer: { flexDirection: "row", alignItems: "center" },
   chatName: { color: "#fff", fontSize: 16, fontWeight: "600", marginBottom: 4 },
   chatMessage: { color: "#94A3B8", fontSize: 14 },
+  typingText: { color: "#A78BFA", fontWeight: "600" },
   avatarOnlineDot: {
     position: "absolute",
     right: 0,
