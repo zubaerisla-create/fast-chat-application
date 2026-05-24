@@ -9,7 +9,11 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Camera access is required for video calls.",
+        "NSMicrophoneUsageDescription": "Microphone access is required for calls."
+      }
     },
     "android": {
       "icon": "./assets/images/icon.png",
