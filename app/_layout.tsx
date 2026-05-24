@@ -1,7 +1,7 @@
-import { DarkTheme, DefaultTheme, NavigationContainerRef, ThemeProvider } from '@react-navigation/native';
+import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import 'react-native-reanimated';
 
 import { activeChatIdRef } from '@/app/screens/chat/ChatScreen';
@@ -16,13 +16,9 @@ function RootLayoutNav() {
   const segments = useSegments();
   const router = useRouter();
 
-  // navigationRef — passed to the push hook so tapping a notification navigates correctly
-  const navigationRef = useRef<NavigationContainerRef<any>>(null);
-
   // activeChatIdRef is a module-level ref exported from ChatScreen.
-  // It is set when the user enters a chat and cleared when they leave,
-  // so the push hook can suppress duplicate in-app banners.
-  usePushNotifications(navigationRef, activeChatIdRef.current);
+  // Pass the ref OBJECT (not .current) so the hook always reads the latest value.
+  usePushNotifications(activeChatIdRef);
 
   useEffect(() => {
     if (isLoading) return;
