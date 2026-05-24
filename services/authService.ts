@@ -79,6 +79,26 @@ const authService = {
   },
 
   /**
+   * Google login / register user via Google ID token
+   */
+  googleLogin: async (idToken: string): Promise<AuthResponse> => {
+    try {
+      const response = await apiClient.post("/auth/google", {
+        idToken,
+      });
+
+      const { token, user } = response.data;
+
+      await AsyncStorage.setItem("authToken", token);
+      await AsyncStorage.setItem("user", JSON.stringify(user));
+
+      return { token, user };
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || "Google login failed");
+    }
+  },
+
+  /**
    * Logout user
    */
   logout: async (): Promise<void> => {

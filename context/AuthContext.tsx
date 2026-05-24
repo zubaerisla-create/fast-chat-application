@@ -9,6 +9,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  googleLogin: (idToken: string) => Promise<void>;
   sendOTP: (email: string) => Promise<void>;
   register: (
     username: string,
@@ -169,6 +170,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
+  const googleLogin = async (idToken: string) => {
+    try {
+      setIsLoading(true);
+      const { user: loggedInUser } = await authService.googleLogin(idToken);
+      setUser(loggedInUser);
+      setIsAuthenticated(true);
+
+      await socketService.connect();
+      const userId = loggedInUser.id || loggedInUser._id;
+      if (userId) socketService.notifyOnline(userId.toString());
+
+      registerForPushNotifications().catch(err =>
+        console.warn("Push token registration failed after Google login:", err)
+      );
+    } catch (error) {
+      setIsAuthenticated(false);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const logout = async () => {
     try {
       setIsLoading(true);
@@ -200,6 +223,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     isLoading,
     sendOTP,
     login,
+    googleLogin,
     register,
     logout,
     updateUser,

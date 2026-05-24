@@ -1,7 +1,7 @@
 import { VoicePlayer } from "@/components/chat/VoicePlayer";
 import { useAuth } from "@/context/AuthContext";
 import { useCall } from "@/context/CallContext";
-import conversationsService from "@/services/conversationsService";
+import conversationsService, { MessageReaction } from "@/services/conversationsService";
 import socketService from "@/services/socketService";
 import uploadService from "@/services/uploadService";
 import usersService, { UserProfile } from "@/services/usersService";
@@ -19,6 +19,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Clipboard,
   Dimensions,
   FlatList,
   Image,
@@ -57,6 +58,7 @@ interface Message {
   replyToSenderId?: string;
   replyToSender?: any;
   senderId?: string;
+  reactions?: MessageReaction[];
 }
 
 interface SwipeableMessageProps {
@@ -78,7 +80,7 @@ const SwipeableMessage: React.FC<SwipeableMessageProps> = ({ children, onReply, 
       },
       onPanResponderMove: (_, gestureState) => {
         let dx = gestureState.dx;
-        
+
         // Resistance effect when swiping too far
         const maxSwipe = 100;
         if (dx > maxSwipe) {
@@ -86,13 +88,13 @@ const SwipeableMessage: React.FC<SwipeableMessageProps> = ({ children, onReply, 
         } else if (dx < -maxSwipe) {
           dx = -maxSwipe + (dx + maxSwipe) * 0.2;
         }
-        
+
         translateX.setValue(dx);
 
         const threshold = 60;
         if (Math.abs(dx) >= threshold) {
           if (!hapticTriggered.current) {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
             hapticTriggered.current = true;
           }
         } else {
@@ -196,7 +198,7 @@ const getReplySenderName = (
 ): string => {
   const currentUserIdStr = currentUserId?.toString();
   const recipientIdStr = targetUserId?.toString();
-  
+
   // Resolve using replyToSenderId
   const replySenderIdStr = replyToSenderId;
   if (replySenderIdStr) {
@@ -308,6 +310,9 @@ export default function ChatScreen() {
   const [isOpponentTyping, setIsOpponentTyping] = useState(false);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isCurrentlyTypingRef = useRef(false);
+
+  const [reactionModalVisible, setReactionModalVisible] = useState(false);
+  const [reactionTargetMessage, setReactionTargetMessage] = useState<Message | null>(null);
 
   useEffect(() => {
     if (messages.length === 0) return;
@@ -508,6 +513,28 @@ export default function ChatScreen() {
   }, []);
 
   useEffect(() => {
+    const unsubscribeReaction = socketService.on("message_reaction_updated", (data: any) => {
+      const { messageId, conversationId: incomingConvId, reactions } = data;
+      const currentConvId = conversationIdRef.current?.toString();
+      if (incomingConvId?.toString() === currentConvId) {
+        setMessages(prev => prev.map(msg => {
+          if (msg.id === messageId?.toString()) {
+            return {
+              ...msg,
+              reactions: reactions.map((r: any) => ({
+                userId: (r.userId?._id || r.userId)?.toString(),
+                emoji: r.emoji
+              }))
+            };
+          }
+          return msg;
+        }));
+      }
+    });
+    return () => { unsubscribeReaction(); };
+  }, []);
+
+  useEffect(() => {
     const unsubscribeDelete = socketService.on("message_deleted", (data: any) => {
       const deletedMsgId = data.messageId || data.id || data;
       if (deletedMsgId) {
@@ -681,7 +708,7 @@ export default function ChatScreen() {
       const permission = await Audio.requestPermissionsAsync();
       if (permission.status === "granted") {
         if (recording) {
-          try { await recording.stopAndUnloadAsync(); } catch (_) {}
+          try { await recording.stopAndUnloadAsync(); } catch (_) { }
           setRecording(null);
         }
         await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
@@ -850,7 +877,7 @@ export default function ChatScreen() {
       try {
         await previewSound.stopAsync();
         await previewSound.unloadAsync();
-      } catch (_) {}
+      } catch (_) { }
       setPreviewSound(null);
       setIsPlayingPreview(false);
     }
@@ -860,7 +887,7 @@ export default function ChatScreen() {
   const handleDeleteAudioPreview = async () => {
     if (!recordedAudioPreview) return;
     const previewToDiscard = recordedAudioPreview;
-    
+
     // Clean up local playback
     await stopPreview();
     setRecordedAudioPreview(null);
@@ -881,7 +908,7 @@ export default function ChatScreen() {
   // Send voice preview
   const handleSendAudioPreview = async () => {
     if (!recordedAudioPreview || !conversationId) return;
-    
+
     if (recordedAudioPreview.isUploading) {
       Alert.alert("Uploading", "Please wait for the audio to finish uploading.");
       return;
@@ -896,7 +923,7 @@ export default function ChatScreen() {
       setIsSending(true);
       const publicUrl = recordedAudioPreview.uploadResult.url;
       const audioDuration = recordedAudioPreview.duration;
-      
+
       const replyData = replyingTo ? {
         id: replyingTo.id,
         text: replyingTo.text,
@@ -904,7 +931,7 @@ export default function ChatScreen() {
         senderId: replyingTo.senderId
       } : null;
       setReplyingTo(null);
-      
+
       // Clean up local preview sound
       await stopPreview();
       setRecordedAudioPreview(null);
@@ -957,8 +984,13 @@ export default function ChatScreen() {
   };
 
   const handleLongPressMessage = (message: Message) => {
-    if (!message.isMe) return; // Only allow unsending own messages
+    setReactionTargetMessage(message);
+    setReactionModalVisible(true);
+  };
 
+  const handleUnsendMessage = () => {
+    if (!reactionTargetMessage) return;
+    const msgId = reactionTargetMessage.id;
     Alert.alert(
       "Unsend Message",
       "Are you sure you want to unsend this message?",
@@ -969,8 +1001,8 @@ export default function ChatScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              await conversationsService.deleteMessage(message.id);
-              setMessages(prev => prev.filter(msg => msg.id !== message.id));
+              await conversationsService.deleteMessage(msgId);
+              setMessages(prev => prev.filter(msg => msg.id !== msgId));
             } catch (error) {
               Alert.alert("Error", "Failed to unsend message");
             }
@@ -980,7 +1012,88 @@ export default function ChatScreen() {
     );
   };
 
+  const handleReactToMessage = async (emoji: string) => {
+    if (!reactionTargetMessage) return;
+    const messageId = reactionTargetMessage.id;
+    setReactionModalVisible(false);
+
+    try {
+      const currentUserId = (user?.id || user?._id)?.toString();
+      if (!currentUserId) return;
+
+      // Optimistic update
+      setMessages(prev => prev.map(msg => {
+        if (msg.id === messageId) {
+          const currentReactions = msg.reactions || [];
+          const existingIndex = currentReactions.findIndex(r => r.userId === currentUserId);
+          let newReactions = [...currentReactions];
+
+          if (existingIndex > -1) {
+            if (currentReactions[existingIndex].emoji === emoji) {
+              // Remove reaction (toggle behavior)
+              newReactions.splice(existingIndex, 1);
+            } else {
+              // Update reaction
+              newReactions[existingIndex] = { userId: currentUserId, emoji };
+            }
+          } else {
+            // Add new reaction
+            newReactions.push({ userId: currentUserId, emoji });
+          }
+          return { ...msg, reactions: newReactions };
+        }
+        return msg;
+      }));
+
+      // Send to server
+      const updatedReactions = await conversationsService.reactToMessage(messageId, emoji);
+
+      // Sync authoritative reactions from server
+      setMessages(prev => prev.map(msg => {
+        if (msg.id === messageId) {
+          return {
+            ...msg,
+            reactions: updatedReactions.map((r: any) => ({
+              userId: (r.userId?._id || r.userId)?.toString(),
+              emoji: r.emoji
+            }))
+          };
+        }
+        return msg;
+      }));
+    } catch (error) {
+      console.error("Failed to react to message:", error);
+      Alert.alert("Error", "Failed to update reaction");
+    }
+  };
+
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
+    const renderReactions = (reactionsList?: MessageReaction[]) => {
+      if (!reactionsList || reactionsList.length === 0) return null;
+
+      const emojiGroups: { [key: string]: number } = {};
+      reactionsList.forEach(r => {
+        emojiGroups[r.emoji] = (emojiGroups[r.emoji] || 0) + 1;
+      });
+
+      return (
+        <View style={[
+          styles.reactionsContainer,
+          item.isMe ? styles.myReactionsContainer : styles.theirReactionsContainer
+        ]}>
+          {Object.keys(emojiGroups).map((emoji) => {
+            const count = emojiGroups[emoji];
+            return (
+              <View key={emoji} style={styles.reactionPill}>
+                <Text style={styles.reactionPillEmoji}>{emoji}</Text>
+                {count > 1 && <Text style={styles.reactionPillCount}>{count}</Text>}
+              </View>
+            );
+          })}
+        </View>
+      );
+    };
+
     const isSelected = selectedMessageId === item.id;
     const currentTimestamp = item.timestamp;
     const olderItem = messages[messages.length - 2 - index];
@@ -1060,59 +1173,66 @@ export default function ChatScreen() {
           )}
 
           <SwipeableMessage onReply={() => startReplyToMessage(item)} isMe={item.isMe}>
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={() => setSelectedMessageId(prev => prev === item.id ? null : item.id)}
-              onLongPress={() => handleLongPressMessage(item)}
-              style={[styles.bubble, item.isMe ? styles.myBubble : styles.theirBubble, isImageOnly && styles.imageBubble]}
-            >
-              {item.isMe ? (
-                <LinearGradient
-                  colors={["#7C3AED", "#6D28D9"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={[styles.bubbleInner, isImageOnly && { padding: 0 }]}
-                >
-                  {replyQuote}
-                  {item.fileUrl && (
-                    isAudio ? (
-                      <VoicePlayer url={item.fileUrl} isMe={item.isMe} audioDuration={item.audioDuration} />
-                    ) : (
-                      <TouchableOpacity onPress={() => setSelectedPreviewImage(item.fileUrl || null)}>
-                        <Image source={{ uri: item.fileUrl }} style={styles.messageImage} resizeMode="cover" />
-                      </TouchableOpacity>
-                    )
-                  )}
-                  {!isAudio && <Text style={styles.myText}>{item.text}</Text>}
-                  <View style={styles.timeRow}>
-                    <Text style={styles.myTimeText}>{item.time}</Text>
-                    <Ionicons
-                      name={item.isRead ? "checkmark-done" : "checkmark"}
-                      size={14}
-                      color={item.isRead ? "#A5F3FC" : "rgba(255,255,255,0.5)"}
-                      style={{ marginLeft: 3 }}
-                    />
+            <View style={[
+              { position: "relative", overflow: "visible" },
+              item.isMe ? { alignSelf: "flex-end" } : { alignSelf: "flex-start" },
+              item.reactions && item.reactions.length > 0 && { marginBottom: 10 }
+            ]}>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => setSelectedMessageId(prev => prev === item.id ? null : item.id)}
+                onLongPress={() => handleLongPressMessage(item)}
+                style={[styles.bubble, item.isMe ? styles.myBubble : styles.theirBubble, isImageOnly && styles.imageBubble]}
+              >
+                {item.isMe ? (
+                  <LinearGradient
+                    colors={["#7C3AED", "#6D28D9"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={[styles.bubbleInner, isImageOnly && { padding: 0 }]}
+                  >
+                    {replyQuote}
+                    {item.fileUrl && (
+                      isAudio ? (
+                        <VoicePlayer url={item.fileUrl} isMe={item.isMe} audioDuration={item.audioDuration} />
+                      ) : (
+                        <TouchableOpacity onPress={() => setSelectedPreviewImage(item.fileUrl || null)}>
+                          <Image source={{ uri: item.fileUrl }} style={styles.messageImage} resizeMode="cover" />
+                        </TouchableOpacity>
+                      )
+                    )}
+                    {!isAudio && <Text style={styles.myText}>{item.text}</Text>}
+                    <View style={styles.timeRow}>
+                      <Text style={styles.myTimeText}>{item.time}</Text>
+                      <Ionicons
+                        name={item.isRead ? "checkmark-done" : "checkmark"}
+                        size={14}
+                        color={item.isRead ? "#A5F3FC" : "rgba(255,255,255,0.5)"}
+                        style={{ marginLeft: 3 }}
+                      />
+                    </View>
+                  </LinearGradient>
+                ) : (
+                  <View style={[styles.bubbleInner, isImageOnly && { padding: 0 }]}>
+                    {replyQuote}
+                    {item.fileUrl && (
+                      isAudio ? (
+                        <VoicePlayer url={item.fileUrl} isMe={item.isMe} audioDuration={item.audioDuration} />
+                      ) : (
+                        <TouchableOpacity onPress={() => setSelectedPreviewImage(item.fileUrl || null)}>
+                          <Image source={{ uri: item.fileUrl }} style={styles.messageImage} resizeMode="cover" />
+                        </TouchableOpacity>
+                      )
+                    )}
+                    {!isAudio && <Text style={styles.theirText}>{item.text}</Text>}
+                    <View style={styles.timeRow}>
+                      <Text style={styles.theirTimeText}>{item.time}</Text>
+                    </View>
                   </View>
-                </LinearGradient>
-              ) : (
-                <View style={[styles.bubbleInner, isImageOnly && { padding: 0 }]}> 
-                  {replyQuote}
-                  {item.fileUrl && (
-                    isAudio ? (
-                      <VoicePlayer url={item.fileUrl} isMe={item.isMe} audioDuration={item.audioDuration} />
-                    ) : (
-                      <TouchableOpacity onPress={() => setSelectedPreviewImage(item.fileUrl || null)}>
-                        <Image source={{ uri: item.fileUrl }} style={styles.messageImage} resizeMode="cover" />
-                      </TouchableOpacity>
-                    )
-                  )}
-                  {!isAudio && <Text style={styles.theirText}>{item.text}</Text>}
-                  <View style={styles.timeRow}>
-                    <Text style={styles.theirTimeText}>{item.time}</Text>
-                  </View>
-                </View>
-              )}
-            </TouchableOpacity>
+                )}
+              </TouchableOpacity>
+              {renderReactions(item.reactions)}
+            </View>
           </SwipeableMessage>
         </View>
       </View>
@@ -1174,16 +1294,16 @@ export default function ChatScreen() {
                 <View style={{ marginLeft: 10 }}>
                   <Text style={styles.headerName}>{chatName}</Text>
                   <Text style={[
-                    styles.status, 
+                    styles.status,
                     isOpponentTyping ? styles.typingStatus : (isRecipientOnline && styles.onlineStatus)
                   ]}>
                     {isOpponentTyping
                       ? "typing..."
                       : isRecipientOnline
-                      ? "● Online"
-                      : lastSeen
-                      ? `Last seen ${new Date(lastSeen).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-                      : "Offline"}
+                        ? "● Online"
+                        : lastSeen
+                          ? `Last seen ${new Date(lastSeen).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                          : "Offline"}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -1278,7 +1398,7 @@ export default function ChatScreen() {
                   <TouchableOpacity onPress={playPreview} style={styles.previewPlayBtn}>
                     <Ionicons name={isPlayingPreview ? "pause" : "play"} size={20} color="white" />
                   </TouchableOpacity>
-                  
+
                   {/* Visual tracker & Upload status */}
                   <View style={styles.previewWaveContainer}>
                     <Text style={styles.previewDurationText}>
@@ -1503,6 +1623,79 @@ export default function ChatScreen() {
           </View>
         </Modal>
 
+        {/* ── Reaction/Actions Modal ── */}
+        <Modal
+          animationType="fade"
+          transparent
+          visible={reactionModalVisible}
+          onRequestClose={() => setReactionModalVisible(false)}
+        >
+          <TouchableWithoutFeedback onPress={() => setReactionModalVisible(false)}>
+            <View style={styles.reactionOverlay}>
+              <TouchableWithoutFeedback>
+                <View style={styles.reactionMenuContainer}>
+                  {/* Emoji Reactions Row */}
+                  <View style={styles.emojiRow}>
+                    {["👍", "❤️", "😂", "😮", "😢", "🙏"].map((emoji) => (
+                      <TouchableOpacity
+                        key={emoji}
+                        onPress={() => handleReactToMessage(emoji)}
+                        style={styles.emojiButton}
+                      >
+                        <Text style={styles.emojiText}>{emoji}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  {/* Actions list */}
+                  <View style={styles.actionMenu}>
+                    <TouchableOpacity
+                      style={styles.actionItem}
+                      onPress={() => {
+                        setReactionModalVisible(false);
+                        if (reactionTargetMessage) {
+                          startReplyToMessage(reactionTargetMessage);
+                        }
+                      }}
+                    >
+                      <Ionicons name="arrow-undo-outline" size={20} color="#94A3B8" style={styles.actionIcon} />
+                      <Text style={styles.actionText}>Reply</Text>
+                    </TouchableOpacity>
+
+                    {reactionTargetMessage && !reactionTargetMessage.fileUrl && (
+                      <TouchableOpacity
+                        style={styles.actionItem}
+                        onPress={() => {
+                          setReactionModalVisible(false);
+                          if (reactionTargetMessage) {
+                            Clipboard.setString(reactionTargetMessage.text);
+                          }
+                        }}
+                      >
+                        <Ionicons name="copy-outline" size={20} color="#94A3B8" style={styles.actionIcon} />
+                        <Text style={styles.actionText}>Copy Text</Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {reactionTargetMessage?.isMe && (
+                      <TouchableOpacity
+                        style={[styles.actionItem, styles.deleteActionItem]}
+                        onPress={() => {
+                          setReactionModalVisible(false);
+                          handleUnsendMessage();
+                        }}
+                      >
+                        <Ionicons name="trash-outline" size={20} color="#EF4444" style={styles.actionIcon} />
+                        <Text style={[styles.actionText, styles.deleteActionText]}>Unsend</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+
         {/* ── Full Screen Image Preview ── */}
         <Modal visible={!!selectedPreviewImage} transparent onRequestClose={() => setSelectedPreviewImage(null)} animationType="fade">
           <View style={styles.previewOverlay}>
@@ -1586,8 +1779,27 @@ const styles = StyleSheet.create({
   /* ── Bubbles ── */
   bubble: { maxWidth: "78%", borderRadius: 20, overflow: "hidden" },
   imageBubble: { borderRadius: 16 },
-  myBubble: { borderBottomRightRadius: 4, alignSelf: "flex-end" },
-  theirBubble: { borderBottomLeftRadius: 4, backgroundColor: "#1E293B", borderWidth: 1, borderColor: "rgba(99,102,241,0.12)", alignSelf: "flex-start" },
+  myBubble: {
+    borderBottomRightRadius: 4,
+    alignSelf: "flex-end",
+    shadowColor: "#7C3AED",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  theirBubble: {
+    borderBottomLeftRadius: 4,
+    backgroundColor: "#1E293B",
+    borderWidth: 1,
+    borderColor: "rgba(99,102,241,0.15)",
+    alignSelf: "flex-start",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 1,
+  },
   bubbleInner: { paddingHorizontal: 14, paddingVertical: 10 },
   replyQuoteContainer: {
     borderRadius: 12,
@@ -1629,8 +1841,8 @@ const styles = StyleSheet.create({
   theirReplyQuoteText: {
     color: "#94A3B8",
   },
-  myText: { color: "#F1F5F9", fontSize: 15, lineHeight: 22 },
-  theirText: { color: "#CBD5E1", fontSize: 15, lineHeight: 22 },
+  myText: { color: "#F1F5F9", fontSize: 15, lineHeight: 22, flexShrink: 1 },
+  theirText: { color: "#CBD5E1", fontSize: 15, lineHeight: 22, flexShrink: 1 },
   messageImage: { width: 220, height: 220, borderRadius: 14, marginBottom: 6 },
   timeRow: { flexDirection: "row", alignItems: "center", alignSelf: "flex-end", marginTop: 4 },
   myTimeText: { fontSize: 11, color: "rgba(255,255,255,0.55)" },
@@ -1877,4 +2089,105 @@ const styles = StyleSheet.create({
 
   /* ── Loading ── */
   loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+
+  /* ── Reaction Actions Overlay & Pill styles ── */
+  reactionOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  reactionMenuContainer: {
+    width: "80%",
+    backgroundColor: "#1E293B",
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#334155",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
+    elevation: 8,
+  },
+  emojiRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#334155",
+    marginBottom: 8,
+  },
+  emojiButton: {
+    padding: 8,
+    borderRadius: 12,
+    backgroundColor: "#0F172A",
+    width: 40,
+    height: 40,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  emojiText: {
+    fontSize: 20,
+  },
+  actionMenu: {
+    marginTop: 8,
+  },
+  actionItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+  },
+  actionIcon: {
+    marginRight: 12,
+  },
+  actionText: {
+    color: "#E2E8F0",
+    fontSize: 15,
+    fontWeight: "500",
+  },
+  deleteActionItem: {
+    borderTopWidth: 1,
+    borderTopColor: "#334155",
+    marginTop: 8,
+    paddingTop: 16,
+  },
+  deleteActionText: {
+    color: "#EF4444",
+  },
+  reactionsContainer: {
+    position: "absolute",
+    bottom: -8,
+    flexDirection: "row",
+    backgroundColor: "#1E293B",
+    borderRadius: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: "#334155",
+    zIndex: 10,
+    elevation: 3,
+  },
+  myReactionsContainer: {
+    right: 10,
+  },
+  theirReactionsContainer: {
+    left: 10,
+  },
+  reactionPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 1,
+  },
+  reactionPillEmoji: {
+    fontSize: 12,
+  },
+  reactionPillCount: {
+    color: "#94A3B8",
+    fontSize: 10,
+    marginLeft: 2,
+    fontWeight: "600",
+  },
 });

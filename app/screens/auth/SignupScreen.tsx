@@ -1,7 +1,9 @@
 import { useAuth } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import * as Google from "expo-auth-session/providers/google";
+import { makeRedirectUri } from "expo-auth-session";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -22,7 +24,7 @@ import {
 
 export default function AuthScreen() {
   const router = useRouter();
-  const { login, register, sendOTP, isLoading } = useAuth();
+  const { login, register, sendOTP, googleLogin, isLoading } = useAuth();
 
   const [mode, setMode] = useState("signup"); // 'signin' or 'signup'
   const [step, setStep] = useState(1); // 1 = Details, 2 = OTP
@@ -32,6 +34,56 @@ export default function AuthScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [otp, setOtp] = useState("");
   const [error, setError] = useState("");
+
+  const ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID || "496809230686-nnd3i14rdhb1plkddn7dl0emnihauas4.apps.googleusercontent.com";
+  const WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB || "496809230686-djde9n55nvgaads7e0o6qak5vjur8b61.apps.googleusercontent.com";
+
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    androidClientId: ANDROID_CLIENT_ID,
+    webClientId: WEB_CLIENT_ID,
+    iosClientId: WEB_CLIENT_ID,
+    scopes: ["openid", "profile", "email"],
+    redirectUri: makeRedirectUri({ useProxy: true }),
+  });
+
+  useEffect(() => {
+    const handleGoogleResponse = async () => {
+      if (response?.type === "success") {
+        const idToken = response.params?.id_token as string | undefined;
+        if (!idToken) {
+          setError("Google login failed. Please try again.");
+          return;
+        }
+
+        try {
+          setError("");
+          await googleLogin(idToken);
+          Alert.alert("Success", "Logged in with Google successfully!");
+          router.replace("/(tabs)");
+        } catch (err: any) {
+          setError(err.message || "Google login failed.");
+          Alert.alert("Error", err.message || "Google login failed.");
+        }
+      }
+    };
+
+    handleGoogleResponse();
+  }, [response, googleLogin, router]);
+
+  const handleGoogleLogin = async () => {
+    setError("");
+    if (!request) {
+      setError("Google authentication is not ready yet. Please try again.");
+      return;
+    }
+
+    try {
+      await promptAsync({ useProxy: true });
+    } catch (err: any) {
+      setError(err.message || "Google login failed.");
+      Alert.alert("Error", err.message || "Google login failed.");
+    }
+  };
 
   const handleSubmit = async () => {
     try {
@@ -243,6 +295,27 @@ export default function AuthScreen() {
                     </Text>
                   )}
                 </TouchableOpacity>
+
+                {step === 1 && (
+                  <>
+                    <View style={styles.orSeparator}>
+                      <View style={styles.line} />
+                      <Text style={styles.orText}>OR</Text>
+                      <View style={styles.line} />
+                    </View>
+
+                    <TouchableOpacity
+                      style={[styles.googleButton, isLoading && styles.buttonDisabled]}
+                      onPress={handleGoogleLogin}
+                      disabled={isLoading}
+                    >
+                      <Ionicons name="logo-google" size={22} color="#1F2937" />
+                      <Text style={styles.googleButtonText}>
+                        Continue with Google
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                )}
                   </>
                 )}
               </View>
@@ -397,5 +470,39 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: {
     opacity: 0.6,
+  },
+  orSeparator: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 24,
+    gap: 12,
+  },
+  line: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "#334155",
+  },
+  orText: {
+    color: "#94A3B8",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  googleButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F8FAFC",
+    height: 56,
+    borderRadius: 16,
+    marginTop: 18,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+  },
+  googleButtonText: {
+    color: "#1F2937",
+    fontSize: 16,
+    fontWeight: "700",
+    marginLeft: 10,
   },
 });

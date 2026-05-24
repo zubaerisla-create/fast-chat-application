@@ -10,6 +10,11 @@ export interface Conversation {
   unreadCount: number;
 }
 
+export interface MessageReaction {
+  userId: string;
+  emoji: string;
+}
+
 export interface Message {
   id: string;
   conversationId: string;
@@ -26,6 +31,7 @@ export interface Message {
   replyToSender?: any;
   timestamp: string;
   isRead?: boolean;
+  reactions?: MessageReaction[];
 }
 
 const conversationsService = {
@@ -185,6 +191,20 @@ const conversationsService = {
     } catch (error: any) {
       throw new Error(
         error.response?.data?.message || "Failed to delete message",
+      );
+    }
+  },
+  
+  /**
+   * React to a message
+   */
+  reactToMessage: async (messageId: string, emoji: string): Promise<MessageReaction[]> => {
+    try {
+      const response = await apiClient.patch(`/messages/${messageId}/react`, { emoji });
+      return response.data.reactions || [];
+    } catch (error: any) {
+      throw new Error(
+        error.response?.data?.message || "Failed to react to message",
       );
     }
   },

@@ -176,6 +176,10 @@ class SocketService {
       this.notifyListeners("user_stopped_typing", data);
     });
 
+    this.socket.on("messageReactionUpdated", (data) => {
+      this.notifyListeners("message_reaction_updated", data);
+    });
+
     this.socket.on("user_online", (data) => {
       this.notifyListeners("user_online", data);
     });
