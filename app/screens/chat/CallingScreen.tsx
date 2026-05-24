@@ -65,12 +65,35 @@ export default function CallingScreen() {
   // Camera starts ON for video calls, OFF for audio calls
   const [isCameraOff, setIsCameraOff] = useState(!isVideo);
   const [remoteUid, setRemoteUid] = useState<number>(0);
-  const [agoraReady, setAgoraReady] = useState(false);
   const engine = useRef<any | null>(null);
+  // Track whether Agora has been set up so we never run it twice
+  const agoraInitialised = useRef(false);
 
-  // ── Initialise Agora when the call becomes active ────────────────────────
+  // Keep a ref to callData so the effect always reads the latest value
+  // without needing callData in the dependency array (which would re-run
+  // the effect on every callData update and tear down the engine).
+  const callDataRef = useRef(callData);
+  useEffect(() => { callDataRef.current = callData; }, [callData]);
+
+  // ── Initialise Agora when BOTH status is active AND callData has appId ───
+  //
+  // Problem: CallContext does two separate setState calls back-to-back:
+  //   setCallData(prev => ({ ...prev, appId, agoraToken, ... }))
+  //   setStatus("active")
+  // React batches these, but the useEffect dependency on [status] fires
+  // after the render where status flipped — at that point callData may
+  // still be the previous render's value in the closure.
+  //
+  // Solution: watch BOTH status AND callData.appId. The effect only
+  // proceeds when status === "active" AND appId is present. If status
+  // flips first and appId isn't there yet, the effect exits early and
+  // re-runs on the next render when callData.appId arrives.
   useEffect(() => {
+    // Guard: only run when active and we have the token/appId from the server
     if (status !== "active") return;
+    if (!callData?.appId || !callData?.agoraToken) return;
+    // Guard: never initialise twice (StrictMode / fast-refresh safety)
+    if (agoraInitialised.current) return;
 
     if (!createAgoraRtcEngine) {
       Alert.alert(
@@ -81,6 +104,7 @@ export default function CallingScreen() {
       return;
     }
 
+    agoraInitialised.current = true;
     let cancelled = false;
 
     (async () => {
@@ -88,8 +112,9 @@ export default function CallingScreen() {
       const granted = await requestCallPermissions(isVideo);
       if (!granted || cancelled) return;
 
-      // 2. Validate appId — never fall back to a placeholder
-      const appId = callData?.appId;
+      // 2. Read from ref so we always have the freshest callData
+      const data = callDataRef.current;
+      const appId = data?.appId;
       if (!appId || appId === "your-agora-app-id") {
         console.error("❌ Agora appId is missing or invalid:", appId);
         Alert.alert("Configuration Error", "Agora App ID is not configured. Please contact support.");
@@ -106,7 +131,6 @@ export default function CallingScreen() {
         engine.current.registerEventHandler({
           onJoinChannelSuccess: (_connection: any) => {
             console.log("✅ Joined Agora channel");
-            setAgoraReady(true);
           },
           onUserJoined: (_connection: any, uid: number) => {
             console.log("👤 Remote user joined:", uid);
@@ -134,11 +158,11 @@ export default function CallingScreen() {
           engine.current.startPreview();              // show local camera immediately
         }
 
-        // 7. Join the channel
+        // 7. Join the channel using the freshest callData values
         engine.current.joinChannel(
-          callData?.agoraToken || "",
-          callData?.channelName || "",
-          callData?.uid ?? 0,
+          data?.agoraToken || "",
+          data?.channelName || "",
+          data?.uid ?? 0,
           {
             clientRoleType: ClientRoleType.ClientRoleBroadcaster,
             channelProfile: ChannelProfileType.ChannelProfileCommunication,
@@ -159,7 +183,7 @@ export default function CallingScreen() {
       } catch (_) {}
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status]);
+  }, [status, callData?.appId, callData?.agoraToken]);
 
   // ── Controls ─────────────────────────────────────────────────────────────
   const toggleMute = () => {
