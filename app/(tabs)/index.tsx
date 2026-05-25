@@ -6,6 +6,7 @@ import socketService from "@/services/socketService";
 import { formatConversationTime } from "@/utils/dateFormatter";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -65,11 +66,13 @@ export default function App() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [typingConversations, setTypingConversations] = useState<{ [conversationId: string]: boolean }>({});
 
-  // Load all users and conversations on component mount
-  useEffect(() => {
-    loadUsers();
-    loadConversations();
-  }, []);
+  // Load all users and conversations on component mount / screen focus
+  useFocusEffect(
+    useCallback(() => {
+      loadUsers();
+      loadConversations();
+    }, [])
+  );
 
   const userConversationsRef = useRef<any[]>([]);
   
