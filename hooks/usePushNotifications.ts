@@ -156,7 +156,7 @@ export async function registerForPushNotifications(): Promise<string | null> {
     expoPushToken = tokenData.data;
     console.log("✅ Got Expo push token:", expoPushToken);
   } catch (tokenErr: any) {
-    console.error("❌ Failed to get Expo push token:", tokenErr?.message);
+    console.warn("⚠️ Failed to get Expo push token (push notifications disabled):", tokenErr?.message);
     return null;
   }
 
@@ -165,8 +165,8 @@ export async function registerForPushNotifications(): Promise<string | null> {
     await apiClient.put("/users/push-token", { expoPushToken });
     console.log("✅ Push token saved to backend successfully");
   } catch (err: any) {
-    console.error(
-      "❌ Failed to save push token to backend:",
+    console.warn(
+      "⚠️ Failed to save push token to backend:",
       err?.message,
       "Status:",
       err?.response?.status
@@ -182,6 +182,6 @@ export async function clearPushToken(): Promise<void> {
   try {
     await apiClient.delete("/users/push-token");
   } catch (err: any) {
-    console.error("Failed to clear push token:", err?.message);
+    console.warn("Failed to clear push token:", err?.message);
   }
 }

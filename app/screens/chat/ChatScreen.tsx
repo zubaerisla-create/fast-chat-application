@@ -476,11 +476,6 @@ export default function ChatScreen() {
   const [isInitializing, setIsInitializing] = useState(true);
   const [conversationId, setConversationId] = useState<string | null>(initialConversationId || null);
   useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId]);
-
-  useEffect(() => {
-    setMessages([]);
-    setConversationId(initialConversationId || null);
-  }, [initialConversationId, targetUserId]);
   const [lastSeen, setLastSeen] = useState<string | null>(null);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -538,22 +533,34 @@ export default function ChatScreen() {
   useEffect(() => {
     const initializeChat = async () => {
       try {
+        console.log("[ChatScreen] initializeChat starting with initialConversationId:", initialConversationId, "targetUserId:", targetUserId);
         setIsLoading(true);
         setIsInitializing(true);
-        let currentConvId = conversationId;
-        if (!currentConvId && targetUserId) {
-          const conv = await conversationsService.createOrGetConversation(targetUserId);
-          currentConvId = conv.id || (conv as any)._id;
-          setConversationId(currentConvId);
-        }
+        setMessages([]); // Clear previous messages immediately on chat switch
+        
+        let currentConvId = initialConversationId || null;
+        setConversationId(currentConvId); // Sync local state
+
         if (targetUserId) {
           usersService.getUserProfile(targetUserId).then(profile => {
             setTargetUserProfile(profile);
             if (profile.lastSeen) setLastSeen(profile.lastSeen);
           }).catch(err => console.error("Error loading target profile:", err));
         }
+
+        if (!currentConvId && targetUserId) {
+          console.log("[ChatScreen] calling createOrGetConversation for targetUserId:", targetUserId);
+          const conv = await conversationsService.createOrGetConversation(targetUserId);
+          console.log("[ChatScreen] createOrGetConversation returned:", JSON.stringify(conv));
+          currentConvId = conv.id || (conv as any)._id;
+          console.log("[ChatScreen] currentConvId set to:", currentConvId);
+          setConversationId(currentConvId);
+        }
+
         if (currentConvId) {
+          console.log("[ChatScreen] fetching messages for currentConvId:", currentConvId);
           const fetchedMessages = await conversationsService.getMessages(currentConvId);
+          console.log("[ChatScreen] fetchedMessages count:", fetchedMessages.length);
           const mappedMessages: Message[] = fetchedMessages.map((msg: any) => {
             const timeSource = msg.createdAt || msg.timestamp || new Date().toISOString();
             return {
@@ -576,6 +583,7 @@ export default function ChatScreen() {
           setMessages(mappedMessages.reverse());
         }
       } catch (error) {
+        console.error("[ChatScreen] Error in initializeChat:", error);
         Alert.alert("Error", "Failed to load conversation");
       } finally {
         setIsLoading(false);
@@ -583,7 +591,7 @@ export default function ChatScreen() {
       }
     };
     initializeChat();
-  }, [user, targetUserId, conversationId]);
+  }, [user, targetUserId, initialConversationId]);
 
   useEffect(() => {
     if (conversationId) socketService.joinConversation(conversationId);
@@ -1328,10 +1336,8 @@ export default function ChatScreen() {
         {/* ── KeyboardAvoidingView wraps ONLY the content below the header ── */}
         <KeyboardAvoidingView
           style={{ flex: 1 }}
-          // FIX: Use "padding" on BOTH platforms — "height" on Android causes the
-          // container to not fully restore its original size after keyboard dismiss.
-          behavior="padding"
-          // FIX: On Android, offset by 0 so padding is applied cleanly.
+          // Use padding on iOS and height on Android to ensure keyboard avoids input field.
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
           keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
         >
           {/* ── Header lives INSIDE KeyboardAvoidingView but is NOT affected by it ── */}
@@ -1409,7 +1415,7 @@ export default function ChatScreen() {
               initialNumToRender={20}
               maxToRenderPerBatch={10}
               windowSize={10}
-              removeClippedSubviews={Platform.OS === "android"}
+              removeClippedSubviews={false}
               inverted
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"

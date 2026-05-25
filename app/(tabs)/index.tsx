@@ -202,9 +202,9 @@ export default function App() {
   const renderChat = ({ item }: { item: any }) => {
     const isUser = "username" in item;
     
-    // Find the other participant if it's a conversation
+    // Find the other participant if it's a conversation and user is loaded
     let otherParticipant = null;
-    if (!isUser && item.participants) {
+    if (!isUser && item.participants && user) {
       otherParticipant = item.participants.find(
         (p: any) => (p._id || p.id).toString() !== (user?.id || user?._id)?.toString()
       );
@@ -242,8 +242,17 @@ export default function App() {
       <TouchableOpacity
         style={styles.chatItem}
         onPress={() => {
+          if (!user) return; // Prevent navigation before auth state is ready
+          
           const itemId = item.id || item._id;
           const targetId = isUser ? (item.id || item._id) : (otherParticipant?._id || otherParticipant?.id);
+          
+          // Safety fallback: do not navigate to undefined or ourselves
+          const loggedInUserId = (user.id || user._id)?.toString();
+          if (!targetId || targetId.toString() === loggedInUserId) {
+            console.warn("⚠️ Cannot navigate to chat: targetId is undefined or matches logged-in user.");
+            return;
+          }
           
           if (searchText) {
             setSearchText("");

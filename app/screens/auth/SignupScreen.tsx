@@ -43,7 +43,7 @@ export default function AuthScreen() {
     webClientId: WEB_CLIENT_ID,
     iosClientId: WEB_CLIENT_ID,
     scopes: ["openid", "profile", "email"],
-    redirectUri: makeRedirectUri({ useProxy: true }),
+    redirectUri: makeRedirectUri(),
   });
 
   useEffect(() => {
@@ -78,7 +78,7 @@ export default function AuthScreen() {
     }
 
     try {
-      await promptAsync({ useProxy: true });
+      await promptAsync();
     } catch (err: any) {
       setError(err.message || "Google login failed.");
       Alert.alert("Error", err.message || "Google login failed.");
