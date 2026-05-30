@@ -3,7 +3,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import * as Google from "expo-auth-session/providers/google";
 import { makeRedirectUri } from "expo-auth-session";
+import * as WebBrowser from "expo-web-browser";
 import React, { useEffect, useState } from "react";
+
+WebBrowser.maybeCompleteAuthSession();
 import {
   ActivityIndicator,
   Alert,

@@ -13,7 +13,8 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Camera access is required for video calls.",
         "NSMicrophoneUsageDescription": "Microphone access is required for calls."
-      }
+      },
+      "bundleIdentifier": "com.zubaer-official.fastchatapp"
     },
     "android": {
       "icon": "./assets/images/icon.png",
@@ -68,7 +69,8 @@
         {
           "android": {
             "enableProguardInReleaseBuilds": true,
-            "enableShrinkResourcesInReleaseBuilds": true
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "enableMinifyInReleaseBuilds": true
           }
         }
       ],
