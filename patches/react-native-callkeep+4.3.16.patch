@@ -1,0 +1,12 @@
+diff --git a/node_modules/react-native-callkeep/android/build.gradle b/node_modules/react-native-callkeep/android/build.gradle
+index e166c30..b903cf4 100644
+--- a/node_modules/react-native-callkeep/android/build.gradle
++++ b/node_modules/react-native-callkeep/android/build.gradle
+@@ -16,6 +16,7 @@ def safeExtGet(prop, fallback) {
+ }
+ 
+ android {
++    namespace 'io.wazo.callkeep'
+     compileSdkVersion safeExtGet('compileSdkVersion', 28)
+ 
+     defaultConfig {
