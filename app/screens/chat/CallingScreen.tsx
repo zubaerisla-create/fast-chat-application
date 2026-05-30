@@ -29,7 +29,7 @@ try {
 
 // ── Permission helper ────────────────────────────────────────────────────────
 async function requestCallPermissions(isVideo: boolean): Promise<boolean> {
-  if (Platform.OS !== "android") return true; // iOS handles permissions via Info.plist
+  if (Platform.OS !== "android") return true;
 
   const perms: string[] = [PermissionsAndroid.PERMISSIONS.RECORD_AUDIO];
   if (isVideo) perms.push(PermissionsAndroid.PERMISSIONS.CAMERA);
@@ -67,76 +67,75 @@ export default function CallingScreen() {
   const otherName = paramOtherName || (role === "receiver" ? callData?.callerName : null) || "Other";
 
   const [isMuted, setIsMuted] = useState(false);
-  // Camera starts ON for video calls, OFF for audio calls
-  const [isCameraOff, setIsCameraOff] = useState(!isVideo);
+  // Camera starts ON for video calls — never needs a manual tap to enable
+  const [isCameraOff, setIsCameraOff] = useState(false);
   const [remoteUid, setRemoteUid] = useState<number>(0);
   const [isSwapped, setIsSwapped] = useState(false);
-  const engine = useRef<any | null>(null);
-  // Track whether Agora has been set up so we never run it twice
-  const agoraInitialised = useRef(false);
+  // Tracks whether the local preview engine is ready (Phase 1 done)
+  const [localPreviewReady, setLocalPreviewReady] = useState(false);
 
-  // Keep a ref to callData so the effect always reads the latest value
-  // without needing callData in the dependency array (which would re-run
-  // the effect on every callData update and tear down the engine).
+  const engine = useRef<any | null>(null);
+  // Phase 1: local engine + preview initialized
+  const phase1Done = useRef(false);
+  // Phase 2: channel joined
+  const phase2Done = useRef(false);
+
+  // Keep a ref to callData so the Phase-2 effect always reads the latest value
   const callDataRef = useRef(callData);
   useEffect(() => { callDataRef.current = callData; }, [callData]);
 
-  // ── Initialise Agora when BOTH status is active AND callData has appId ───
-  //
-  // Problem: CallContext does two separate setState calls back-to-back:
-  //   setCallData(prev => ({ ...prev, appId, agoraToken, ... }))
-  //   setStatus("active")
-  // React batches these, but the useEffect dependency on [status] fires
-  // after the render where status flipped — at that point callData may
-  // still be the previous render's value in the closure.
-  //
-  // Solution: watch BOTH status AND callData.appId. The effect only
-  // proceeds when status === "active" AND appId is present. If status
-  // flips first and appId isn't there yet, the effect exits early and
-  // re-runs on the next render when callData.appId arrives.
+  // ── PHASE 1: Initialize Agora engine + start local preview ───────────────
+  // Runs immediately on mount (for video) or just sets up audio (for audio).
+  // This ensures the local camera is visible as soon as the screen opens —
+  // no need to wait for the call to be accepted.
   useEffect(() => {
-    // Guard: only run when active and we have the token/appId from the server
-    if (status !== "active") return;
-    if (!callData?.appId || !callData?.agoraToken) return;
-    // Guard: never initialise twice (StrictMode / fast-refresh safety)
-    if (agoraInitialised.current) return;
-
+    if (phase1Done.current) return;
     if (!createAgoraRtcEngine) {
-      Alert.alert(
-        "Native Module Missing",
-        "Calling requires a Development Build (npx expo prebuild). It will not work in Expo Go.",
-        [{ text: "OK", onPress: () => endCall() }]
-      );
+      console.warn("Agora not available — skipping Phase 1");
       return;
     }
 
-    agoraInitialised.current = true;
     let cancelled = false;
 
     (async () => {
-      // 1. Request permissions first
       const granted = await requestCallPermissions(isVideo);
       if (!granted || cancelled) return;
 
-      // 2. Read from ref so we always have the freshest callData
-      const data = callDataRef.current;
-      const appId = data?.appId;
-      if (!appId || appId === "your-agora-app-id") {
-        console.error("❌ Agora appId is missing or invalid:", appId);
-        Alert.alert("Configuration Error", "Agora App ID is not configured. Please contact support.");
-        endCall();
-        return;
-      }
-
       try {
-        // 3. Create and initialise engine
-        engine.current = createAgoraRtcEngine();
-        engine.current.initialize({ appId });
+        phase1Done.current = true;
 
-        // 4. Register event handlers
+        // Create engine with a placeholder appId for preview.
+        // The real appId comes in Phase 2 when we join the channel.
+        // For preview only, any non-empty string works; we reinitialize
+        // with the real appId in Phase 2 before joining.
+        // Actually, we need the real appId even for preview — read from callData if available,
+        // otherwise we wait. Let's check if callData already has appId at mount time.
+        const earlyAppId = callDataRef.current?.appId;
+
+        if (!earlyAppId || earlyAppId === "your-agora-app-id") {
+          // AppId not yet available — Phase 1 will be a no-op; Phase 2 handles everything.
+          phase1Done.current = false;
+          return;
+        }
+
+        engine.current = createAgoraRtcEngine();
+        engine.current.initialize({ appId: earlyAppId });
+
+        // Register handlers early so we don't miss events
         engine.current.registerEventHandler({
           onJoinChannelSuccess: (_connection: any) => {
             console.log("✅ Joined Agora channel");
+            // Android fix: RtcSurfaceView(uid=0) won't render until we
+            // explicitly re-enable local video AFTER the channel is joined.
+            // This is why the PiP box shows black on first join — re-enabling
+            // forces the camera pipeline to connect to the surface.
+            if (isVideo) {
+              setTimeout(() => {
+                engine.current?.enableLocalVideo(true);
+                engine.current?.muteLocalVideoStream(false);
+                setLocalPreviewReady(true);
+              }, 300);
+            }
           },
           onUserJoined: (_connection: any, uid: number) => {
             console.log("👤 Remote user joined:", uid);
@@ -145,26 +144,123 @@ export default function CallingScreen() {
           onUserOffline: (_connection: any, uid: number) => {
             console.log("👤 Remote user left:", uid);
             setRemoteUid(0);
-            endCall();
+            if (!cancelled) endCall();
           },
           onError: (err: any, msg: string) => {
             console.error("Agora error:", err, msg);
           },
         });
 
-        // 5. Enable audio (always)
+        // Always enable audio
         engine.current.enableAudio();
         engine.current.muteLocalAudioStream(false);
         engine.current.setEnableSpeakerphone(true);
 
-        // 6. Enable video and start local preview BEFORE joining channel
-        if (isVideo) {
+        if (isVideo && !cancelled) {
+          // Enable video subsystem + start local camera preview immediately
           engine.current.enableVideo();
-          engine.current.muteLocalVideoStream(false); // ensure camera is unmuted
-          engine.current.startPreview();              // show local camera immediately
+          engine.current.enableLocalVideo(true);   // explicitly enable local capture
+          engine.current.muteLocalVideoStream(false);
+          engine.current.startPreview();
+          if (!cancelled) setLocalPreviewReady(true);
+          console.log("📷 Local video preview started");
+        }
+      } catch (e) {
+        console.error("Agora Phase-1 error:", e);
+        phase1Done.current = false;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Runs ONCE on mount
+
+  // ── PHASE 2: Join the Agora channel when call becomes active ────────────
+  // Waits for status === "active" AND appId/token from the server.
+  // If Phase 1 already created the engine, we reuse it.
+  // If Phase 1 was skipped (appId wasn't available yet), we create engine here.
+  useEffect(() => {
+    if (status !== "active") return;
+    if (!callData?.appId || !callData?.agoraToken) return;
+    if (phase2Done.current) return;
+    if (!createAgoraRtcEngine) return;
+
+    phase2Done.current = true;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const data = callDataRef.current;
+        const appId = data?.appId;
+        if (!appId || appId === "your-agora-app-id") {
+          console.error("❌ Agora appId is missing or invalid:", appId);
+          Alert.alert("Configuration Error", "Agora App ID is not configured.");
+          endCall();
+          return;
         }
 
-        // 7. Join the channel using the freshest callData values
+        if (!phase1Done.current) {
+          // Phase 1 was skipped — do a full setup now
+          const granted = await requestCallPermissions(isVideo);
+          if (!granted || cancelled) return;
+
+          engine.current = createAgoraRtcEngine();
+          engine.current.initialize({ appId });
+
+          engine.current.registerEventHandler({
+            onJoinChannelSuccess: (_connection: any) => {
+              console.log("✅ Joined Agora channel");
+              // Android fix: re-enable local video after channel join so the
+              // RtcSurfaceView(uid=0) PiP renders without needing a manual toggle.
+              if (isVideo) {
+                setTimeout(() => {
+                  engine.current?.enableLocalVideo(true);
+                  engine.current?.muteLocalVideoStream(false);
+                  setLocalPreviewReady(true);
+                }, 300);
+              }
+            },
+            onUserJoined: (_connection: any, uid: number) => {
+              console.log("👤 Remote user joined:", uid);
+              setRemoteUid(uid);
+            },
+            onUserOffline: (_connection: any, uid: number) => {
+              console.log("👤 Remote user left:", uid);
+              setRemoteUid(0);
+              if (!cancelled) endCall();
+            },
+            onError: (err: any, msg: string) => {
+              console.error("Agora error:", err, msg);
+            },
+          });
+
+          engine.current.enableAudio();
+          engine.current.muteLocalAudioStream(false);
+          engine.current.setEnableSpeakerphone(true);
+
+          if (isVideo) {
+            engine.current.enableVideo();
+            engine.current.enableLocalVideo(true);
+            engine.current.muteLocalVideoStream(false);
+            engine.current.startPreview();
+            if (!cancelled) setLocalPreviewReady(true);
+          }
+          phase1Done.current = true;
+        }
+
+        if (cancelled) return;
+
+        // Ensure video is fully enabled right before joining (re-affirm in case
+        // Phase 1 had timing issues)
+        if (isVideo) {
+          engine.current.enableVideo();
+          engine.current.enableLocalVideo(true);
+          engine.current.muteLocalVideoStream(false);
+        }
+
+        // Join the channel with server-provided credentials
         engine.current.joinChannel(
           data?.agoraToken || "",
           data?.channelName || "",
@@ -172,24 +268,37 @@ export default function CallingScreen() {
           {
             clientRoleType: ClientRoleType.ClientRoleBroadcaster,
             channelProfile: ChannelProfileType.ChannelProfileCommunication,
+            publishCameraTrack: isVideo,       // explicitly publish camera for video calls
+            publishMicrophoneTrack: true,
+            autoSubscribeAudio: true,
+            autoSubscribeVideo: isVideo,       // auto-subscribe to remote video
           }
         );
+        console.log("📡 Joined Agora channel:", data?.channelName);
       } catch (e) {
-        console.error("Agora setup error:", e);
+        console.error("Agora Phase-2 error:", e);
         if (!cancelled) endCall();
       }
     })();
 
     return () => {
       cancelled = true;
+      // Full cleanup only when the component truly unmounts
+      // (this cleanup only fires if status/appId/token change, which shouldn't happen)
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, callData?.appId, callData?.agoraToken]);
+
+  // ── Full cleanup when component unmounts ──────────────────────────────────
+  useEffect(() => {
+    return () => {
       try {
         engine.current?.leaveChannel();
         engine.current?.release();
         engine.current = null;
       } catch (_) {}
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, callData?.appId, callData?.agoraToken]);
+  }, []);
 
   // ── Controls ─────────────────────────────────────────────────────────────
   const toggleMute = () => {
@@ -201,18 +310,30 @@ export default function CallingScreen() {
   const toggleCamera = () => {
     const next = !isCameraOff;
     setIsCameraOff(next);
-    engine.current?.muteLocalVideoStream(next); // true = muted (camera off)
+    engine.current?.muteLocalVideoStream(next);   // true = camera off
+    engine.current?.enableLocalVideo(!next);       // complement: false = stop capture
   };
 
   // ── Waiting / ringing UI ─────────────────────────────────────────────────
   const renderCallingUI = () => (
     <View style={styles.container}>
+      {/* For video calls, show the local camera preview even during ringing */}
+      {isVideo && localPreviewReady && !isCameraOff && RtcSurfaceView ? (
+        <RtcSurfaceView canvas={{ uid: 0 }} style={StyleSheet.absoluteFill} />
+      ) : null}
+
+      {/* Semi-transparent overlay so controls are readable over the camera */}
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: isVideo && localPreviewReady ? "rgba(0,0,0,0.4)" : "transparent" }]} />
+
       <View style={styles.topInfo}>
-        <View style={styles.avatarContainer}>
-          <Text style={styles.avatarText}>
-            {callData?.callerName?.charAt(0).toUpperCase() ?? "U"}
-          </Text>
-        </View>
+        {/* Only show avatar when camera is off or audio call */}
+        {(!isVideo || !localPreviewReady || isCameraOff) && (
+          <View style={styles.avatarContainer}>
+            <Text style={styles.avatarText}>
+              {callData?.callerName?.charAt(0).toUpperCase() ?? "U"}
+            </Text>
+          </View>
+        )}
         <Text style={styles.nameText}>{callData?.callerName ?? "User"}</Text>
         <Text style={styles.statusText}>
           {status === "outgoing" ? "Calling..." : "Incoming Call..."}
@@ -287,7 +408,7 @@ export default function CallingScreen() {
               </View>
             )
           ) : (
-            // Remote video full-screen
+            // Remote video full-screen — shows as soon as remote user joins
             remoteUid !== 0 && RtcSurfaceView ? (
               <RtcSurfaceView canvas={{ uid: remoteUid }} style={styles.remoteVideo} />
             ) : (
@@ -318,7 +439,7 @@ export default function CallingScreen() {
                 </View>
               )
             ) : (
-              // Local video in PiP
+              // Local video in PiP — camera is always on by default
               !isCameraOff && RtcSurfaceView ? (
                 <RtcSurfaceView canvas={{ uid: 0 }} style={styles.localVideo} zOrderMediaOverlay={true} />
               ) : (
@@ -387,7 +508,7 @@ const styles = StyleSheet.create({
   },
 
   // Ringing / waiting
-  topInfo: { alignItems: "center", position: "absolute", top: 100 },
+  topInfo: { alignItems: "center", position: "absolute", top: 100, zIndex: 10 },
   avatarContainer: {
     width: 100,
     height: 100,
@@ -406,6 +527,7 @@ const styles = StyleSheet.create({
     bottom: 100,
     width: "100%",
     alignItems: "center",
+    zIndex: 10,
   },
   incomingButtons: {
     flexDirection: "row",
@@ -504,6 +626,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.5)",
     padding: 20,
     borderRadius: 40,
+    zIndex: 10,
   },
   overlayButton: {
     width: 56,

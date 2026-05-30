@@ -13,6 +13,9 @@ export interface Conversation {
 export interface MessageReaction {
   userId: string;
   emoji: string;
+  username?: string;
+  avatar?: string;
+  createdAt?: string;
 }
 
 export interface Message {

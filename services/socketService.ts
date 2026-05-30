@@ -12,6 +12,9 @@ class SocketService {
 
   private activeConversationId: string | null = null;
 
+  // Bug 6 fix: track which rooms we've already joined to prevent duplicates
+  private joinedRooms: Set<string> = new Set();
+
   /**
    * Initialize socket connection
    */
@@ -105,16 +108,22 @@ class SocketService {
         this.socket?.emit("userOnline", this.userId);
       }
 
-      // Re-join active conversation room after reconnect
+      // Bug 6 fix: Re-join active conversation after reconnect.
+      // Clear the set first so we actually re-join (server drops room membership on disconnect).
+      // Only emit join_conversation (single event) — do NOT also emit joinRoom.
       if (this.activeConversationId) {
         console.log("🔄 Re-joining conversation after reconnect:", this.activeConversationId);
+        this.joinedRooms.clear(); // reset so joinConversation will re-emit
         this.socket?.emit("join_conversation", this.activeConversationId);
-        this.socket?.emit("joinRoom", this.activeConversationId);
+        this.joinedRooms.add(this.activeConversationId);
       }
     });
 
     this.socket.on("disconnect", () => {
       console.log("Socket disconnected ❌");
+      // Bug 6 fix: clear joinedRooms on disconnect — server drops all memberships,
+      // so we must re-join on next connect.
+      this.joinedRooms.clear();
       this.notifyListeners("socket:disconnected");
     });
 
@@ -242,13 +251,35 @@ class SocketService {
   }
 
   /**
-   * Join a specific conversation room
+   * Join a specific conversation room.
+   * Bug 6 fix: guarded with joinedRooms Set — will not re-emit if already joined.
    */
   joinConversation(conversationId: string): void {
-    console.log("Joining conversation room:", conversationId);
     this.activeConversationId = conversationId; // remember for reconnect
+
+    // Bug 6 fix: skip if already in this room (prevents duplicate events)
+    if (this.joinedRooms.has(conversationId)) {
+      console.log("Already in conversation room, skipping re-join:", conversationId);
+      return;
+    }
+
+    console.log("Joining conversation room:", conversationId);
+    // Emit only join_conversation — do NOT emit joinRoom to avoid double-subscription
     this.emit("join_conversation", conversationId);
-    this.emit("joinRoom", conversationId);
+    this.joinedRooms.add(conversationId);
+  }
+
+  /**
+   * Leave a specific conversation room (call on chat screen unmount).
+   */
+  leaveConversation(conversationId: string): void {
+    if (this.joinedRooms.has(conversationId)) {
+      this.emit("leave_conversation", conversationId);
+      this.joinedRooms.delete(conversationId);
+      if (this.activeConversationId === conversationId) {
+        this.activeConversationId = null;
+      }
+    }
   }
 
   /**

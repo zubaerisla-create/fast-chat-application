@@ -280,6 +280,7 @@ interface MessageItemProps {
   onPress: () => void;
   onLongPress: () => void;
   onPreviewImage: (url: string) => void;
+  onReactionPress: (item: Message) => void;
 }
 
 const MessageItem = React.memo<MessageItemProps>(({
@@ -294,6 +295,7 @@ const MessageItem = React.memo<MessageItemProps>(({
   onPress,
   onLongPress,
   onPreviewImage,
+  onReactionPress,
 }) => {
   const isImageOnly = item.fileType === "image" && item.fileUrl;
   const isAudio = item.fileType === "audio";
@@ -314,10 +316,10 @@ const MessageItem = React.memo<MessageItemProps>(({
         {Object.keys(emojiGroups).map((emoji) => {
           const count = emojiGroups[emoji];
           return (
-            <View key={emoji} style={styles.reactionPill}>
+            <TouchableOpacity key={emoji} style={styles.reactionPill} onPress={() => onReactionPress(item)}>
               <Text style={styles.reactionPillEmoji}>{emoji}</Text>
               {count > 1 && <Text style={styles.reactionPillCount}>{count}</Text>}
-            </View>
+            </TouchableOpacity>
           );
         })}
       </View>
@@ -497,6 +499,9 @@ export default function ChatScreen() {
   const [isPlayingPreview, setIsPlayingPreview] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const conversationIdRef = useRef<string | null>(conversationId);
+  // Bug 4 fix: track which message IDs have already been marked seen
+  // to prevent duplicate markMessagesSeen socket emissions on every incoming message
+  const seenMessageIdsRef = useRef<Set<string>>(new Set());
   const inputRef = useRef<TextInput>(null);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -508,6 +513,8 @@ export default function ChatScreen() {
 
   const [reactionModalVisible, setReactionModalVisible] = useState(false);
   const [reactionTargetMessage, setReactionTargetMessage] = useState<Message | null>(null);
+  const [reactionDetailsModalVisible, setReactionDetailsModalVisible] = useState(false);
+  const [reactionDetailsMessage, setReactionDetailsMessage] = useState<Message | null>(null);
 
   const isRecipientOnline =
     (targetUserId && onlineUsers.includes(targetUserId.toString())) ||
@@ -578,6 +585,16 @@ export default function ChatScreen() {
               replyToText: msg.replyToText,
               replyToSender: msg.replyToSender,
               replyToSenderId: msg.replyToSenderId,
+              // ── Fix: map reactions from API response so they persist across reloads ──
+              reactions: Array.isArray(msg.reactions)
+                ? msg.reactions.map((r: any) => ({
+                    userId: (r.userId?._id || r.userId)?.toString(),
+                    emoji: r.emoji,
+                    username: r.userId?.username || r.username,
+                    avatar: r.userId?.avatar || r.avatar,
+                    createdAt: r.createdAt,
+                  }))
+                : [],
             };
           });
           setMessages(mappedMessages.reverse());
@@ -591,10 +608,19 @@ export default function ChatScreen() {
       }
     };
     initializeChat();
-  }, [user, targetUserId, initialConversationId]);
+  // Bug 3 fix: use the stable user ID string instead of the user object.
+  // The user object reference changes every time AuthContext re-renders (e.g. online
+  // users list updates), which caused initializeChat to run repeatedly.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id || user?._id, targetUserId, initialConversationId]);
 
   useEffect(() => {
-    if (conversationId) socketService.joinConversation(conversationId);
+    if (!conversationId) return;
+    socketService.joinConversation(conversationId);
+    // Leave the room when this chat screen unmounts or conversationId changes
+    return () => {
+      socketService.leaveConversation(conversationId);
+    };
   }, [conversationId]);
 
   useEffect(() => {
@@ -727,7 +753,10 @@ export default function ChatScreen() {
               ...msg,
               reactions: reactions.map((r: any) => ({
                 userId: (r.userId?._id || r.userId)?.toString(),
-                emoji: r.emoji
+                emoji: r.emoji,
+                username: r.userId?.username || r.username,
+                avatar: r.userId?.avatar || r.avatar,
+                createdAt: r.createdAt,
               }))
             };
           }
@@ -751,17 +780,35 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (!conversationId || messages.length === 0 || !user) return;
-    const unreadMessages = messages.filter(msg => !msg.isMe && !msg.isRead && msg.id);
+
+    // Bug 4 fix: only process messages whose IDs are NOT already in the seen set
+    const unreadMessages = messages.filter(
+      msg => !msg.isMe && !msg.isRead && msg.id && !seenMessageIdsRef.current.has(msg.id)
+    );
     if (unreadMessages.length === 0) return;
+
     const unreadMessageIds = unreadMessages.map(msg => msg.id);
-    setMessages(prev => prev.map(msg => unreadMessageIds.includes(msg.id) ? { ...msg, isRead: true } : msg));
+
+    // Optimistically mark them as read in UI
+    setMessages(prev =>
+      prev.map(msg => unreadMessageIds.includes(msg.id) ? { ...msg, isRead: true } : msg)
+    );
+
+    // Add to seen set BEFORE the async call to prevent re-entry on re-render
+    unreadMessageIds.forEach(id => seenMessageIdsRef.current.add(id));
+
     conversationsService.markMessagesRead(conversationId).then(markedIds => {
       if (markedIds && markedIds.length > 0) {
         const userId = (user?.id || user?._id) as string;
         socketService.markMessagesSeen(conversationId, markedIds, userId, targetUserId);
       }
-    }).catch(err => console.error("Failed to mark messages read:", err));
-  }, [messages.length, conversationId, user]);
+    }).catch(err => {
+      console.error("Failed to mark messages read:", err);
+      // On failure, remove from seen set so they can be retried
+      unreadMessageIds.forEach(id => seenMessageIdsRef.current.delete(id));
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages.length, conversationId, user?.id || user?._id]);
 
   useEffect(() => {
     if (contactModalVisible && targetUserId) fetchContactInfo();
@@ -998,6 +1045,21 @@ export default function ChatScreen() {
     }
   };
 
+  const cancelRecording = async () => {
+    setIsRecording(false);
+    if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
+    pulseAnim.stopAnimation();
+    pulseAnim.setValue(1);
+    setRecordingDuration(0);
+    if (!recording) return;
+    try {
+      await recording.stopAndUnloadAsync();
+      setRecording(null);
+    } catch (err) {
+      console.error("Failed to cancel recording", err);
+    }
+  };
+
   const sendFileMessage = async (uri: string, type: string, duration?: number) => {
     if (!conversationId) return;
     try {
@@ -1209,6 +1271,12 @@ export default function ChatScreen() {
     setReactionModalVisible(true);
   };
 
+  const handleReactionPress = useCallback((message: Message) => {
+    setReactionTargetMessage(message);
+    setReactionDetailsMessage(message);
+    setReactionDetailsModalVisible(true);
+  }, []);
+
   const handleUnsendMessage = () => {
     if (!reactionTargetMessage) return;
     const msgId = reactionTargetMessage.id;
@@ -1256,11 +1324,11 @@ export default function ChatScreen() {
               newReactions.splice(existingIndex, 1);
             } else {
               // Update reaction
-              newReactions[existingIndex] = { userId: currentUserId, emoji };
+              newReactions[existingIndex] = { ...newReactions[existingIndex], emoji, createdAt: new Date().toISOString() };
             }
           } else {
             // Add new reaction
-            newReactions.push({ userId: currentUserId, emoji });
+            newReactions.push({ userId: currentUserId, emoji, username: user?.username || "You", avatar: user?.avatar, createdAt: new Date().toISOString() });
           }
           return { ...msg, reactions: newReactions };
         }
@@ -1277,7 +1345,10 @@ export default function ChatScreen() {
             ...msg,
             reactions: updatedReactions.map((r: any) => ({
               userId: (r.userId?._id || r.userId)?.toString(),
-              emoji: r.emoji
+              emoji: r.emoji,
+              username: r.userId?.username || r.username,
+              avatar: r.userId?.avatar || r.avatar,
+              createdAt: r.createdAt,
             }))
           };
         }
@@ -1312,6 +1383,7 @@ export default function ChatScreen() {
         onPress={() => handleMessagePress(item.id)}
         onLongPress={() => handleMessageLongPress(item)}
         onPreviewImage={handleMessagePreviewImage}
+        onReactionPress={handleReactionPress}
       />
     );
   }, [messages, selectedMessageId, user, targetUserId, chatName, targetUserProfile, startReplyToMessage, handleMessagePress, handleMessageLongPress, handleMessagePreviewImage]);
@@ -1494,6 +1566,33 @@ export default function ChatScreen() {
                   </LinearGradient>
                 </TouchableOpacity>
               </LinearGradient>
+            ) : isRecording ? (
+              <LinearGradient colors={["#1E293B", "#0F172A"]} style={styles.previewBannerContainer}>
+                {/* Trash/Delete Button */}
+                <TouchableOpacity onPress={cancelRecording} style={styles.previewDiscardBtn}>
+                  <Ionicons name="trash-outline" size={22} color="#EF4444" />
+                </TouchableOpacity>
+
+                {/* Recording indicator */}
+                <View style={[styles.previewPlaybackContainer, { backgroundColor: 'transparent', paddingHorizontal: 0, justifyContent: 'center' }]}>
+                    <Animated.View style={[styles.recordingDot, { opacity: pulseAnim, marginRight: 8 }]} />
+                    <Text style={styles.recordingTime}>
+                      {`${String(Math.floor(recordingDuration / 60)).padStart(2, "0")}:${String(recordingDuration % 60).padStart(2, "0")}`}
+                    </Text>
+                    <View style={styles.recordingBars}>
+                      {[4, 10, 14, 7, 12, 6, 16, 5, 11, 8, 14, 6, 10, 4, 13, 9, 7, 11].map((h, i) => (
+                        <View key={i} style={[styles.recordingBar, { height: h }]} />
+                      ))}
+                    </View>
+                </View>
+
+                {/* Stop Button */}
+                <TouchableOpacity onPress={stopRecording} style={styles.previewSendBtn}>
+                  <LinearGradient colors={["#EF4444", "#DC2626"]} style={styles.previewSendBtnGradient}>
+                    <Ionicons name="stop" size={18} color="white" />
+                  </LinearGradient>
+                </TouchableOpacity>
+              </LinearGradient>
             ) : (
               <LinearGradient colors={["#1A1F35", "#141929"]} style={styles.inputContainer}>
                 <TouchableOpacity style={styles.attachButton} onPress={handleAttachImage}>
@@ -1503,34 +1602,20 @@ export default function ChatScreen() {
                   <Ionicons name="attach" size={22} color="#6366F1" />
                 </TouchableOpacity>
 
-                {isRecording ? (
-                  <View style={styles.recordingIndicator}>
-                    <Animated.View style={[styles.recordingDot, { opacity: pulseAnim }]} />
-                    <Text style={styles.recordingTime}>
-                      {`${String(Math.floor(recordingDuration / 60)).padStart(2, "0")}:${String(recordingDuration % 60).padStart(2, "0")}`}
-                    </Text>
-                    <View style={styles.recordingBars}>
-                      {[4, 10, 14, 7, 12, 6, 16, 5, 11, 8, 14, 6, 10, 4, 13, 9, 7, 11].map((h, i) => (
-                        <View key={i} style={[styles.recordingBar, { height: h }]} />
-                      ))}
-                    </View>
-                  </View>
-                ) : (
-                  <TextInput
-                    ref={inputRef}
-                    style={styles.input}
-                    placeholder={`Message ${chatName}...`}
-                    placeholderTextColor="#475569"
-                    value={messageText}
-                    onChangeText={handleTextChange}
-                    onFocus={handleFocus}
-                    onBlur={handleBlur}
-                    multiline
-                    maxLength={1000}
-                    editable={!isSending}
-                    textAlignVertical="center"
-                  />
-                )}
+                <TextInput
+                  ref={inputRef}
+                  style={styles.input}
+                  placeholder={`Message ${chatName}...`}
+                  placeholderTextColor="#475569"
+                  value={messageText}
+                  onChangeText={handleTextChange}
+                  onFocus={handleFocus}
+                  onBlur={handleBlur}
+                  multiline
+                  maxLength={1000}
+                  editable={!isSending}
+                  textAlignVertical="center"
+                />
 
                 {messageText.trim() ? (
                   <TouchableOpacity
@@ -1548,16 +1633,11 @@ export default function ChatScreen() {
                   </TouchableOpacity>
                 ) : (
                   <TouchableOpacity
-                    style={[styles.micButton, isRecording && styles.activeMicButton]}
+                    style={styles.micButton}
+                    onPress={startRecording}
                     onLongPress={startRecording}
-                    onPressOut={stopRecording}
-                    delayLongPress={200}
                   >
-                    <Ionicons
-                      name={isRecording ? "radio-button-on" : "mic-outline"}
-                      size={22}
-                      color={isRecording ? "#EF4444" : "#6366F1"}
-                    />
+                    <Ionicons name="mic-outline" size={22} color="#6366F1" />
                   </TouchableOpacity>
                 )}
               </LinearGradient>
@@ -1775,6 +1855,59 @@ export default function ChatScreen() {
                 <Image key={selectedPreviewImage} source={{ uri: selectedPreviewImage }} style={{ width, height }} resizeMode="contain" />
               )}
             </ScrollView>
+          </View>
+        </Modal>
+
+        {/* ── Reaction Details Modal ── */}
+        <Modal animationType="slide" transparent visible={reactionDetailsModalVisible} onRequestClose={() => setReactionDetailsModalVisible(false)}>
+          <View style={styles.modalOverlay}>
+            <LinearGradient colors={["#1A1F35", "#0F172A"]} style={styles.modalContent}>
+              <View style={styles.modalHandle} />
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Reactions</Text>
+                <TouchableOpacity onPress={() => setReactionDetailsModalVisible(false)} style={styles.modalCloseBtn}>
+                  <Ionicons name="close" size={22} color="#94A3B8" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={{ flex: 1, marginBottom: 20 }}>
+                {reactionDetailsMessage?.reactions?.map((reaction, index) => {
+                  const isMyReaction = reaction.userId === (user?.id || user?._id);
+                  const Wrapper: any = isMyReaction ? TouchableOpacity : View;
+                  return (
+                    <Wrapper 
+                      key={`${reaction.userId}-${index}`} 
+                      style={styles.reactionDetailItem}
+                      onPress={isMyReaction ? () => {
+                        handleReactToMessage(reaction.emoji);
+                        setReactionDetailsModalVisible(false);
+                      } : undefined}
+                      activeOpacity={isMyReaction ? 0.7 : 1}
+                    >
+                      <View style={styles.reactionDetailUser}>
+                        {reaction.avatar ? (
+                          <Image source={{ uri: reaction.avatar }} style={styles.reactionDetailAvatar} />
+                        ) : (
+                          <LinearGradient colors={["#6366F1", "#8B5CF6"]} style={styles.reactionDetailAvatarGradient}>
+                            <Text style={styles.reactionDetailAvatarText}>
+                              {(reaction.username || "U").charAt(0).toUpperCase()}
+                            </Text>
+                          </LinearGradient>
+                        )}
+                        <View style={{ marginLeft: 12 }}>
+                          <Text style={styles.reactionDetailName}>
+                            {isMyReaction ? "You" : reaction.username || "User"}
+                          </Text>
+                          <Text style={styles.reactionDetailTime}>
+                            {reaction.createdAt ? new Date(reaction.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : "Unknown time"}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={styles.reactionDetailEmoji}>{reaction.emoji}</Text>
+                    </Wrapper>
+                  );
+                })}
+              </ScrollView>
+            </LinearGradient>
           </View>
         </Modal>
       </SafeAreaView>
@@ -2257,5 +2390,50 @@ const styles = StyleSheet.create({
     fontSize: 10,
     marginLeft: 2,
     fontWeight: "600",
+  },
+  /* ── Reaction Details ── */
+  reactionDetailItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(99,102,241,0.1)",
+  },
+  reactionDetailUser: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  reactionDetailAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#6366F1",
+  },
+  reactionDetailAvatarGradient: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  reactionDetailAvatarText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  reactionDetailName: {
+    color: "#F1F5F9",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  reactionDetailTime: {
+    color: "#64748B",
+    fontSize: 12,
+    marginTop: 2,
+  },
+  reactionDetailEmoji: {
+    fontSize: 24,
   },
 });
