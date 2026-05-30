@@ -1375,7 +1375,7 @@ export default function ChatScreen() {
                     {isOpponentTyping
                       ? "typing..."
                       : isRecipientOnline
-                        ? "● Online"
+                        ? "Online"
                         : lastSeen
                           ? `Last seen ${new Date(lastSeen).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
                           : "Offline"}

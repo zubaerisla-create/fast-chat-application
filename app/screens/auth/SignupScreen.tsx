@@ -307,7 +307,7 @@ export default function AuthScreen() {
                       <View style={styles.line} />
                     </View>
 
-                    <TouchableOpacity
+                    {/* <TouchableOpacity
                       style={[styles.googleButton, isLoading && styles.buttonDisabled]}
                       onPress={handleGoogleLogin}
                       disabled={isLoading}
@@ -316,7 +316,7 @@ export default function AuthScreen() {
                       <Text style={styles.googleButtonText}>
                         Continue with Google
                       </Text>
-                    </TouchableOpacity>
+                    </TouchableOpacity> */}
                   </>
                 )}
                   </>
