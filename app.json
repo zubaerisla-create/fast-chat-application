@@ -7,10 +7,16 @@
     "icon": "./assets/images/icon.png",
     "scheme": "fastchatapp",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
+        "UIBackgroundModes": [
+          "audio",
+          "voip",
+          "fetch",
+          "remote-notification"
+        ],
         "NSCameraUsageDescription": "Camera access is required for video calls.",
         "NSMicrophoneUsageDescription": "Microphone access is required for calls."
       },
@@ -30,6 +36,9 @@
         "RECORD_AUDIO",
         "MODIFY_AUDIO_SETTINGS",
         "INTERNET",
+        "USE_FULL_SCREEN_INTENT",
+        "MANAGE_OWN_CALLS",
+        "READ_PHONE_STATE",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
@@ -75,7 +84,16 @@
         }
       ],
       "expo-asset",
-      "./withApkSplit.js"
+      "./withApkSplit.js",
+      "@config-plugins/react-native-callkeep",
+      [
+        "@react-native-firebase/app",
+        {}
+      ],
+      [
+        "@react-native-firebase/messaging",
+        {}
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
@@ -84,7 +102,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "ec4ee1e6-0314-44dd-962b-f3d56be4e4d6"
+        "projectId": "45ab59a3-bc32-49aa-b427-ea6896abdaf7"
       }
     }
   }

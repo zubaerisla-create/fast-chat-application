@@ -4,6 +4,11 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
 
+import { setupCallKeep } from '@/app/services/voipPushService';
+
+// Initialize native call UI early
+setupCallKeep();
+
 import { activeChatIdRef } from '@/app/screens/chat/ChatScreen';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { CallProvider } from '@/context/CallContext';

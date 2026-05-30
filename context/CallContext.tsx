@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Alert } from "react-native";
+// @ts-ignore
+import RNCallKeep from 'react-native-callkeep';
 import socketService from "@/services/socketService";
 import callingService from "@/services/callingService";
 let createAgoraRtcEngine: any;
@@ -138,12 +140,37 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isProcessingAcceptRef.current = false;
     });
 
+    // ── CallKeep Listeners ──
+    const onAnswerCallAction = ({ callUUID }: any) => {
+      console.log('✅ CallKeep answerCall', callUUID);
+      // Wait a moment for callData to be populated if waking from background
+      setTimeout(() => {
+         if (statusRef.current === "incoming" || statusRef.current === "idle") {
+           acceptCall();
+         }
+      }, 500);
+    };
+
+    const onEndCallAction = ({ callUUID }: any) => {
+      console.log('🔴 CallKeep endCall', callUUID);
+      if (statusRef.current === "incoming") {
+        rejectCall();
+      } else {
+        endCall();
+      }
+    };
+
+    RNCallKeep.addEventListener('answerCall', onAnswerCallAction);
+    RNCallKeep.addEventListener('endCall', onEndCallAction);
+
     return () => {
       unsubscribeIncoming();
       unsubscribeInitiated();
       unsubscribeAccepted();
       unsubscribeRejected();
       unsubscribeEnded();
+      RNCallKeep.removeEventListener('answerCall');
+      RNCallKeep.removeEventListener('endCall');
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // ← Empty array: register ONCE. Refs handle fresh values.
