@@ -85,7 +85,10 @@
       "expo-asset",
       "./withApkSplit.js",
       "@config-plugins/react-native-callkeep",
-      
+      [
+        "@react-native-firebase/app",
+        {}
+      ],
       [
         "@react-native-firebase/messaging",
         {}
