@@ -7,7 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "fastchatapp",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": false,
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -86,10 +85,7 @@
       "expo-asset",
       "./withApkSplit.js",
       "@config-plugins/react-native-callkeep",
-      [
-        "@react-native-firebase/app",
-        {}
-      ],
+      
       [
         "@react-native-firebase/messaging",
         {}

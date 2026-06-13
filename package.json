@@ -12,9 +12,9 @@
     "postinstall": "patch-package"
   },
   "dependencies": {
+    "@config-plugins/react-native-callkeep": "^13.0.0",
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",
-    "@react-native-firebase/app": "^20.1.0",
     "@react-native-firebase/messaging": "^20.1.0",
     "@react-navigation/bottom-tabs": "^7.4.0",
     "@react-navigation/elements": "^2.6.3",
@@ -51,25 +51,24 @@
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
     "react-native-agora": "^4.5.4",
+    "react-native-callkeep": "^4.3.12",
     "react-native-gesture-handler": "~2.28.0",
     "react-native-get-random-values": "~1.11.0",
     "react-native-reanimated": "~4.1.1",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0",
     "react-native-svg": "15.12.1",
+    "react-native-voip-push-notification": "^3.3.3",
     "react-native-web": "~0.21.0",
     "react-native-worklets": "0.5.1",
-    "socket.io-client": "^4.7.2",
-    "react-native-callkeep": "^4.3.12",
-    "react-native-voip-push-notification": "^3.3.3",
-    "@config-plugins/react-native-callkeep": "^13.0.0"
+    "socket.io-client": "^4.7.2"
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
-    "typescript": "~5.9.2",
-    "patch-package": "^8.0.0"
+    "patch-package": "^8.0.0",
+    "typescript": "~5.9.2"
   },
   "private": true
 }
