@@ -9,8 +9,8 @@ export default function Index() {
   // Show loading while checking authentication state
   if (isLoading) {
     return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#0F172A" }}>
-        <ActivityIndicator size="large" color="#8B5CF6" />
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#070B14" }}>
+        <ActivityIndicator size="large" color="#8B7CFF" />
       </View>
     );
   }

@@ -1,7 +1,7 @@
 import { io, Socket } from "socket.io-client";
 import authService from "./authService";
 
-const rawUrl = (process.env.EXPO_PUBLIC_API_URL || "https://fast-chat-1.onrender.com").trim();
+const rawUrl = (process.env.EXPO_PUBLIC_API_URL || "https://fastchat.hosensoft.com").trim();
 const SOCKET_URL = rawUrl.endsWith('/api') ? rawUrl.replace('/api', '') : rawUrl;
 
 class SocketService {

@@ -3,6 +3,7 @@ import messaging from '@react-native-firebase/messaging';
 import RNCallKeep from 'react-native-callkeep';
 import { Platform } from 'react-native';
 import VoipPushNotification from 'react-native-voip-push-notification';
+import { CALLS_ENABLED } from '@/constants/features';
 
 // Options for react-native-callkeep
 export const callKeepOptions = {
@@ -46,7 +47,7 @@ export const setupCallKeep = () => {
 messaging().setBackgroundMessageHandler(async remoteMessage => {
   console.log('[FCM] Message handled in the background!', remoteMessage);
   
-  if (remoteMessage.data && remoteMessage.data.type === 'voip_call') {
+  if (CALLS_ENABLED && remoteMessage.data && remoteMessage.data.type === 'voip_call') {
     const callerName = remoteMessage.data.callerName || 'Unknown Caller';
     const uuid = remoteMessage.data.uuid || 'unknown-uuid';
     const hasVideo = remoteMessage.data.callType === 'video';
@@ -63,7 +64,7 @@ messaging().setBackgroundMessageHandler(async remoteMessage => {
 });
 
 // Handle iOS VoIP Pushes
-if (Platform.OS === 'ios') {
+if (CALLS_ENABLED && Platform.OS === 'ios') {
   VoipPushNotification.addEventListener('notification', (notification) => {
     console.log('[VoIP Push] Received notification:', notification);
     const { uuid, callerName, hasVideo } = notification;

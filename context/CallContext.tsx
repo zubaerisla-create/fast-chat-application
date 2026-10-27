@@ -11,6 +11,7 @@ try {
 } catch (e) {}
 import { useAuth } from "./AuthContext";
 import { useRouter } from "expo-router";
+import { CALLS_ENABLED } from "@/constants/features";
 
 export type CallStatus = "idle" | "incoming" | "outgoing" | "active" | "ended";
 export type CallType = "audio" | "video";
@@ -57,6 +58,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Register listeners ONCE — use refs for current values to avoid stale closures
   useEffect(() => {
+    if (!CALLS_ENABLED) return;
+
     const unsubscribeIncoming = socketService.on("incoming_call", (data: any) => {
       console.log("📞 Incoming call received:", data);
       // Only accept a new call when idle — ignore if already in a call

@@ -18,9 +18,9 @@ const authService = {
   /**
    * Send OTP to user's email
    */
-  sendOTP: async (email: string): Promise<any> => {
+  sendOTP: async (email: string, username?: string): Promise<any> => {
     try {
-      const response = await apiClient.post("/auth/send-otp", { email });
+      const response = await apiClient.post("/auth/send-otp", { email, username });
       return response.data;
     } catch (error: any) {
       throw new Error(error.response?.data?.message || "Failed to send OTP");
@@ -95,6 +95,47 @@ const authService = {
       return { token, user };
     } catch (error: any) {
       throw new Error(error.response?.data?.message || "Google login failed");
+    }
+  },
+
+  /**
+   * Email a password reset code (the server answers the same whether or not the account exists)
+   */
+  forgotPassword: async (email: string): Promise<string> => {
+    try {
+      const response = await apiClient.post("/auth/forgot-password", { email });
+      return response.data.message;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || "Failed to send reset code");
+    }
+  },
+
+  /**
+   * Check a reset code before asking for the new password
+   */
+  verifyResetOTP: async (email: string, otp: string): Promise<void> => {
+    try {
+      await apiClient.post("/auth/verify-reset-otp", { email, otp });
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || "Invalid code");
+    }
+  },
+
+  /**
+   * Set a new password with a reset code; logs the user in on success
+   */
+  resetPassword: async (email: string, otp: string, newPassword: string): Promise<AuthResponse> => {
+    try {
+      const response = await apiClient.post("/auth/reset-password", { email, otp, newPassword });
+
+      const { token, user } = response.data;
+
+      await AsyncStorage.setItem("authToken", token);
+      await AsyncStorage.setItem("user", JSON.stringify(user));
+
+      return { token, user };
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || "Password reset failed");
     }
   },
 

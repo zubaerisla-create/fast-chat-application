@@ -1,511 +1,506 @@
+import {
+  AuthBackground,
+  BrandMark,
+  ErrorBanner,
+  Field,
+  InfoBanner,
+  OtpInput,
+  PasswordStrength,
+  PrimaryButton,
+  TextButton,
+} from "@/components/auth/AuthUI";
+import { palette, radius } from "@/constants/design";
 import { useAuth } from "@/context/AuthContext";
+import authService from "@/services/authService";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import * as Google from "expo-auth-session/providers/google";
-import { makeRedirectUri } from "expo-auth-session";
-import * as WebBrowser from "expo-web-browser";
-import React, { useEffect, useState } from "react";
-
-WebBrowser.maybeCompleteAuthSession();
+import React, { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  Keyboard,
+  Animated,
+  Easing,
   KeyboardAvoidingView,
+  LayoutChangeEvent,
   Platform,
-  SafeAreaView,
+  Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+type Mode = "signin" | "signup" | "forgot";
+
+const RESEND_SECONDS = 60;
+const EMAIL_REGEX = /^\S+@\S+\.\S+$/;
+const USERNAME_REGEX = /^[a-zA-Z0-9._]{3,30}$/;
+
+const COPY: Record<string, { title: string; subtitle: (email: string) => string }> = {
+  "signin-1": { title: "Welcome back", subtitle: () => "Sign in to pick up your conversations." },
+  "signup-1": { title: "Create your account", subtitle: () => "Join Fast Chat — it takes less than a minute." },
+  "signup-2": { title: "Check your inbox", subtitle: (e) => `Enter the 6-digit code we sent to ${e}.` },
+  "forgot-1": { title: "Forgot password?", subtitle: () => "Enter your email and we'll send you a reset code." },
+  "forgot-2": { title: "Enter reset code", subtitle: (e) => `We sent a 6-digit code to ${e}.` },
+  "forgot-3": { title: "Set a new password", subtitle: () => "Pick something strong that you haven't used before." },
+};
 
 export default function AuthScreen() {
   const router = useRouter();
-  const { login, register, sendOTP, googleLogin, isLoading } = useAuth();
+  const { login, register, sendOTP, resetPassword } = useAuth();
 
-  const [mode, setMode] = useState("signup"); // 'signin' or 'signup'
-  const [step, setStep] = useState(1); // 1 = Details, 2 = OTP
+  const [mode, setMode] = useState<Mode>("signin");
+  const [step, setStep] = useState(1);
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [otp, setOtp] = useState("");
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [resendIn, setResendIn] = useState(0);
 
-  const ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID || "496809230686-nnd3i14rdhb1plkddn7dl0emnihauas4.apps.googleusercontent.com";
-  const WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB || "496809230686-djde9n55nvgaads7e0o6qak5vjur8b61.apps.googleusercontent.com";
+  const emailRef = useRef<TextInput>(null);
+  const passwordRef = useRef<TextInput>(null);
+  const confirmRef = useRef<TextInput>(null);
 
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    androidClientId: ANDROID_CLIENT_ID,
-    webClientId: WEB_CLIENT_ID,
-    iosClientId: WEB_CLIENT_ID,
-    scopes: ["openid", "profile", "email"],
-    redirectUri: makeRedirectUri(),
-  });
+  const trimmedEmail = email.trim().toLowerCase();
+  const copy = COPY[`${mode}-${step}`];
+
+  // ── Animations: content fades/slides in on every screen change; tab pill slides ──
+  const enter = useRef(new Animated.Value(1)).current;
+  const pill = useRef(new Animated.Value(0)).current;
+  const [tabWidth, setTabWidth] = useState(0);
 
   useEffect(() => {
-    const handleGoogleResponse = async () => {
-      if (response?.type === "success") {
-        const idToken = response.params?.id_token as string | undefined;
-        if (!idToken) {
-          setError("Google login failed. Please try again.");
-          return;
-        }
+    enter.setValue(0);
+    Animated.timing(enter, { toValue: 1, duration: 320, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [mode, step, enter]);
 
-        try {
-          setError("");
-          await googleLogin(idToken);
-          Alert.alert("Success", "Logged in with Google successfully!");
-          router.replace("/(tabs)");
-        } catch (err: any) {
-          setError(err.message || "Google login failed.");
-          Alert.alert("Error", err.message || "Google login failed.");
-        }
-      }
-    };
+  useEffect(() => {
+    Animated.spring(pill, { toValue: mode === "signup" ? 1 : 0, useNativeDriver: true, speed: 18, bounciness: 6 }).start();
+  }, [mode, pill]);
 
-    handleGoogleResponse();
-  }, [response, googleLogin, router]);
+  // ── Resend countdown ──
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const t = setTimeout(() => setResendIn((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendIn]);
 
-  const handleGoogleLogin = async () => {
+  const go = (nextMode: Mode, nextStep = 1) => {
     setError("");
-    if (!request) {
-      setError("Google authentication is not ready yet. Please try again.");
-      return;
-    }
+    setInfo("");
+    setOtp("");
+    setMode(nextMode);
+    setStep(nextStep);
+  };
 
+  const run = async (fn: () => Promise<void>) => {
+    if (busy) return;
+    setError("");
+    setInfo("");
+    setBusy(true);
     try {
-      await promptAsync();
+      await fn();
     } catch (err: any) {
-      setError(err.message || "Google login failed.");
-      Alert.alert("Error", err.message || "Google login failed.");
+      setError(err?.message || "Something went wrong. Please try again.");
+    } finally {
+      setBusy(false);
     }
   };
 
-  const handleSubmit = async () => {
-    try {
-      setError("");
+  const finish = () => router.replace("/(tabs)");
 
-      // Validate inputs
-      if (!email || !password) {
-        setError("Email and password are required");
-        return;
-      }
+  // ── Actions ──
+  const handleSignIn = () =>
+    run(async () => {
+      if (!EMAIL_REGEX.test(trimmedEmail)) throw new Error("Please enter a valid email.");
+      if (!password) throw new Error("Please enter your password.");
+      await login(trimmedEmail, password);
+      finish();
+    });
 
-      if (mode === "signup" && step === 1 && !username) {
-        setError("Username is required");
-        return;
+  const handleSendSignupCode = () =>
+    run(async () => {
+      if (!USERNAME_REGEX.test(username.trim())) {
+        throw new Error("Username must be 3–30 characters: letters, numbers, dots or underscores.");
       }
+      if (!EMAIL_REGEX.test(trimmedEmail)) throw new Error("Please enter a valid email.");
+      if (password.length < 6) throw new Error("Password must be at least 6 characters.");
+      await sendOTP(trimmedEmail, username.trim());
+      setOtp("");
+      setResendIn(RESEND_SECONDS);
+      setStep(2);
+    });
 
-      if (password.length < 6) {
-        setError("Password must be at least 6 characters");
-        return;
-      }
+  const handleVerifySignup = (code = otp) =>
+    run(async () => {
+      if (code.length !== 6) throw new Error("Enter the 6-digit code.");
+      await register(username.trim(), trimmedEmail, password, code);
+      finish();
+    });
 
-      if (mode === "signup") {
-        if (step === 1) {
-          // Send OTP
-          await sendOTP(email);
-          Alert.alert("Success", "OTP sent to your email!");
-          setStep(2);
-        } else if (step === 2) {
-          if (!otp || otp.length !== 6) {
-            setError("Please enter a valid 6-digit OTP");
-            return;
-          }
-          // Register with OTP
-          await register(username, email, password, otp);
-          Alert.alert("Success", "Account created successfully!");
-          router.replace("/(tabs)");
-        }
-      } else {
-        // Login
-        await login(email, password);
-        Alert.alert("Success", "Logged in successfully!");
-        router.replace("/(tabs)");
-      }
-    } catch (err: any) {
-      setError(err.message || "An error occurred");
-      Alert.alert("Error", err.message || "An error occurred");
+  const handleSendResetCode = () =>
+    run(async () => {
+      if (!EMAIL_REGEX.test(trimmedEmail)) throw new Error("Please enter a valid email.");
+      await authService.forgotPassword(trimmedEmail);
+      setOtp("");
+      setResendIn(RESEND_SECONDS);
+      setStep(2);
+    });
+
+  const handleVerifyReset = (code = otp) =>
+    run(async () => {
+      if (code.length !== 6) throw new Error("Enter the 6-digit code.");
+      await authService.verifyResetOTP(trimmedEmail, code);
+      setPassword("");
+      setConfirmPassword("");
+      setStep(3);
+    });
+
+  const handleResetPassword = () =>
+    run(async () => {
+      if (password.length < 6) throw new Error("Password must be at least 6 characters.");
+      if (password !== confirmPassword) throw new Error("Passwords don't match.");
+      await resetPassword(trimmedEmail, otp, password);
+      finish();
+    });
+
+  const handleResend = () =>
+    run(async () => {
+      if (mode === "signup") await sendOTP(trimmedEmail, username.trim());
+      else await authService.forgotPassword(trimmedEmail);
+      setOtp("");
+      setResendIn(RESEND_SECONDS);
+      setInfo("A new code is on its way.");
+    });
+
+  // Submit automatically once all 6 digits are typed
+  const onOtpChange = (value: string) => {
+    setOtp(value);
+    if (value.length === 6 && !busy) {
+      if (mode === "signup") handleVerifySignup(value);
+      else handleVerifyReset(value);
     }
+  };
+
+  const handleBack = () => {
+    if (mode === "forgot" && step === 1) go("signin");
+    else if (mode === "forgot" && step === 3) go("forgot", 2);
+    else go(mode, step - 1);
+  };
+
+  const showTabs = step === 1 && mode !== "forgot";
+  const showBack = !showTabs;
+
+  // ── Render helpers ──
+  const renderOtpStep = (onSubmit: () => void, cta: string) => (
+    <>
+      <OtpInput value={otp} onChange={onOtpChange} />
+      <PrimaryButton title={cta} onPress={onSubmit} loading={busy} disabled={otp.length !== 6} />
+      <View style={styles.resendRow}>
+        <Text style={styles.mutedText}>Didn&apos;t get it? </Text>
+        {resendIn > 0 ? (
+          <Text style={styles.mutedText}>Resend in {resendIn}s</Text>
+        ) : (
+          <TextButton title="Resend code" onPress={handleResend} disabled={busy} />
+        )}
+      </View>
+      <Text style={styles.hint}>Check your spam folder if it doesn&apos;t arrive within a minute.</Text>
+    </>
+  );
+
+  const renderForm = () => {
+    if (mode === "signin") {
+      return (
+        <>
+          <Field
+            label="Email"
+            icon="mail-outline"
+            placeholder="you@example.com"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            value={email}
+            onChangeText={setEmail}
+            returnKeyType="next"
+            onSubmitEditing={() => passwordRef.current?.focus()}
+          />
+          <Field
+            ref={passwordRef}
+            label="Password"
+            icon="lock-closed-outline"
+            placeholder="Your password"
+            secure
+            autoCapitalize="none"
+            autoComplete="password"
+            value={password}
+            onChangeText={setPassword}
+            returnKeyType="go"
+            onSubmitEditing={handleSignIn}
+          />
+          <View style={styles.forgotRow}>
+            <TextButton title="Forgot password?" onPress={() => go("forgot")} />
+          </View>
+          <PrimaryButton title="Sign in" icon="arrow-forward" onPress={handleSignIn} loading={busy} />
+        </>
+      );
+    }
+
+    if (mode === "signup" && step === 1) {
+      return (
+        <>
+          <Field
+            label="Username"
+            icon="at-outline"
+            placeholder="your_name"
+            autoCapitalize="none"
+            autoComplete="username"
+            value={username}
+            onChangeText={setUsername}
+            returnKeyType="next"
+            onSubmitEditing={() => emailRef.current?.focus()}
+          />
+          <Field
+            ref={emailRef}
+            label="Email"
+            icon="mail-outline"
+            placeholder="you@example.com"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            value={email}
+            onChangeText={setEmail}
+            returnKeyType="next"
+            onSubmitEditing={() => passwordRef.current?.focus()}
+          />
+          <Field
+            ref={passwordRef}
+            label="Password"
+            icon="lock-closed-outline"
+            placeholder="At least 6 characters"
+            secure
+            autoCapitalize="none"
+            autoComplete="new-password"
+            value={password}
+            onChangeText={setPassword}
+            returnKeyType="go"
+            onSubmitEditing={handleSendSignupCode}
+          />
+          <PasswordStrength password={password} />
+          <PrimaryButton title="Continue" icon="arrow-forward" onPress={handleSendSignupCode} loading={busy} />
+          <Text style={styles.hint}>We&apos;ll email you a code to verify it&apos;s really you.</Text>
+        </>
+      );
+    }
+
+    if (mode === "signup" && step === 2) {
+      return renderOtpStep(() => handleVerifySignup(), "Verify & create account");
+    }
+
+    if (mode === "forgot" && step === 1) {
+      return (
+        <>
+          <Field
+            label="Email"
+            icon="mail-outline"
+            placeholder="you@example.com"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            autoFocus
+            value={email}
+            onChangeText={setEmail}
+            returnKeyType="send"
+            onSubmitEditing={handleSendResetCode}
+          />
+          <PrimaryButton title="Send reset code" icon="paper-plane-outline" onPress={handleSendResetCode} loading={busy} />
+          <View style={styles.resendRow}>
+            <Text style={styles.mutedText}>Remembered it? </Text>
+            <TextButton title="Back to sign in" onPress={() => go("signin")} />
+          </View>
+        </>
+      );
+    }
+
+    if (mode === "forgot" && step === 2) {
+      return renderOtpStep(() => handleVerifyReset(), "Verify code");
+    }
+
+    return (
+      <>
+        <Field
+          ref={passwordRef}
+          label="New password"
+          icon="lock-closed-outline"
+          placeholder="At least 6 characters"
+          secure
+          autoCapitalize="none"
+          autoComplete="new-password"
+          autoFocus
+          value={password}
+          onChangeText={setPassword}
+          returnKeyType="next"
+          onSubmitEditing={() => confirmRef.current?.focus()}
+        />
+        <PasswordStrength password={password} />
+        <Field
+          ref={confirmRef}
+          label="Confirm password"
+          icon="shield-checkmark-outline"
+          placeholder="Type it again"
+          secure
+          autoCapitalize="none"
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
+          returnKeyType="go"
+          onSubmitEditing={handleResetPassword}
+        />
+        <PrimaryButton title="Update password & sign in" onPress={handleResetPassword} loading={busy} />
+      </>
+    );
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0F172A" />
+    <View style={styles.root}>
+      <StatusBar barStyle="light-content" backgroundColor={palette.bg} />
+      <AuthBackground />
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={{ flex: 1 }}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={styles.content}>
-              {/* Logo */}
-              <View style={styles.logoContainer}>
-                <Image 
-                  source={require('../../../assets/images/icon.png')} 
-                  style={{ width: 80, height: 80, borderRadius: 20 }} 
-                />
-              </View>
-
-              {/* Title */}
-              <Text style={styles.title}>fast-chat</Text>
-              <Text style={styles.subtitle}>Real-time chat. Clean & fast.</Text>
-
-              {/* Tab Switcher */}
-              <View style={styles.tabContainer}>
-                <TouchableOpacity
-                  style={[styles.tab, mode === "signin" && styles.activeTab]}
-                  onPress={() => { setMode("signin"); setStep(1); }}
-                >
-                  <Text
-                    style={[
-                      styles.tabText,
-                      mode === "signin" && styles.activeTabText,
-                    ]}
-                  >
-                    Sign In
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.tab, mode === "signup" && styles.activeTab]}
-                  onPress={() => { setMode("signup"); setStep(1); }}
-                >
-                  <Text
-                    style={[
-                      styles.tabText,
-                      mode === "signup" && styles.activeTabText,
-                    ]}
-                  >
-                    Sign Up
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Error Message */}
-              {error ? (
-                <View style={styles.errorContainer}>
-                  <Ionicons name="alert-circle" size={20} color="#EF4444" />
-                  <Text style={styles.errorText}>{error}</Text>
-                </View>
-              ) : null}
-
-              {/* Form */}
-              <View style={styles.form}>
-                {mode === "signup" && step === 2 ? (
-                  <>
-                    <Text style={styles.label}>ENTER OTP</Text>
-                    <Text style={{color: '#94A3B8', marginBottom: 16}}>An OTP has been sent to {email}</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="6-digit OTP"
-                      placeholderTextColor="#64748B"
-                      value={otp}
-                      onChangeText={setOtp}
-                      keyboardType="number-pad"
-                      maxLength={6}
-                    />
-                    
-                    <TouchableOpacity
-                      style={[styles.button, isLoading && styles.buttonDisabled]}
-                      onPress={handleSubmit}
-                      disabled={isLoading}
-                    >
-                      {isLoading ? (
-                        <ActivityIndicator color="white" size="large" />
-                      ) : (
-                        <Text style={styles.buttonText}>Verify & Register</Text>
-                      )}
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={{ marginTop: 20, alignItems: 'center' }}
-                      onPress={() => setStep(1)}
-                    >
-                      <Text style={{ color: '#94A3B8', fontSize: 16, fontWeight: '600' }}>Go Back</Text>
-                    </TouchableOpacity>
-                  </>
-                ) : (
-                  <>
-                    {mode === "signup" && (
-                      <>
-                        <Text style={styles.label}>USERNAME</Text>
-                        <TextInput
-                          style={styles.input}
-                          placeholder="your_username"
-                          placeholderTextColor="#64748B"
-                          value={username}
-                          onChangeText={setUsername}
-                        />
-                      </>
-                    )}
-
-                    <Text style={styles.label}>EMAIL</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="you@example.com"
-                  placeholderTextColor="#64748B"
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  value={email}
-                  onChangeText={setEmail}
-                />
-
-                <Text style={styles.label}>PASSWORD</Text>
-                <View style={styles.passwordContainer}>
-                  <TextInput
-                    style={styles.passwordInput}
-                    placeholder="••••••••"
-                    placeholderTextColor="#64748B"
-                    secureTextEntry={!showPassword}
-                    value={password}
-                    onChangeText={setPassword}
-                  />
-                  <TouchableOpacity
-                    style={styles.eyeIcon}
-                    onPress={() => setShowPassword(!showPassword)}
-                  >
-                    <Ionicons
-                      name={showPassword ? "eye-off" : "eye"}
-                      size={22}
-                      color="#64748B"
-                    />
-                  </TouchableOpacity>
-                </View>
-
-                {/* Submit Button */}
-                <TouchableOpacity
-                  style={[styles.button, isLoading && styles.buttonDisabled]}
-                  onPress={handleSubmit}
-                  disabled={isLoading}
-                >
-                  {isLoading ? (
-                    <ActivityIndicator color="white" size="large" />
-                  ) : (
-                    <Text style={styles.buttonText}>
-                      {mode === "signup" ? "Send OTP" : "Sign In"}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-
-                {step === 1 && (
-                  <>
-                    <View style={styles.orSeparator}>
-                      <View style={styles.line} />
-                      <Text style={styles.orText}>OR</Text>
-                      <View style={styles.line} />
-                    </View>
-
-                    {/* <TouchableOpacity
-                      style={[styles.googleButton, isLoading && styles.buttonDisabled]}
-                      onPress={handleGoogleLogin}
-                      disabled={isLoading}
-                    >
-                      <Ionicons name="logo-google" size={22} color="#1F2937" />
-                      <Text style={styles.googleButtonText}>
-                        Continue with Google
-                      </Text>
-                    </TouchableOpacity> */}
-                  </>
-                )}
-                  </>
-                )}
-              </View>
+      <SafeAreaView style={{ flex: 1 }}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+          <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            <View style={styles.topBar}>
+              {showBack ? (
+                <Pressable onPress={handleBack} hitSlop={10} style={styles.backButton}>
+                  <Ionicons name="chevron-back" size={22} color={palette.text} />
+                </Pressable>
+              ) : (
+                <View style={{ height: 40 }} />
+              )}
             </View>
-          </TouchableWithoutFeedback>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+
+            <View style={styles.brandRow}>
+              <BrandMark size={56} />
+              <Text style={styles.brandName}>Fast Chat</Text>
+            </View>
+
+            <Animated.View
+              style={{
+                opacity: enter,
+                transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }],
+              }}
+            >
+              <Text style={styles.title}>{copy.title}</Text>
+              <Text style={styles.subtitle}>{copy.subtitle(trimmedEmail)}</Text>
+            </Animated.View>
+
+            <View style={styles.card}>
+              {showTabs && (
+                <View
+                  style={styles.tabs}
+                  onLayout={(e: LayoutChangeEvent) => setTabWidth((e.nativeEvent.layout.width - 8) / 2)}
+                >
+                  {tabWidth > 0 && (
+                    <Animated.View
+                      style={[
+                        styles.tabPill,
+                        {
+                          width: tabWidth,
+                          transform: [{ translateX: pill.interpolate({ inputRange: [0, 1], outputRange: [0, tabWidth] }) }],
+                        },
+                      ]}
+                    />
+                  )}
+                  {(["signin", "signup"] as const).map((m) => (
+                    <Pressable key={m} style={styles.tab} onPress={() => go(m)}>
+                      <Text style={[styles.tabText, mode === m && styles.tabTextActive]}>
+                        {m === "signin" ? "Sign in" : "Sign up"}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+
+              <Animated.View
+                style={{
+                  opacity: enter,
+                  transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }],
+                }}
+              >
+                <ErrorBanner message={error} />
+                <InfoBanner message={info} />
+                {renderForm()}
+              </Animated.View>
+            </View>
+
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#0F172A",
-  },
-  content: {
-    alignItems: "center",
-    paddingTop: 60,
-    paddingHorizontal: 24,
-    paddingBottom: 40,
-  },
-  scrollContent: {
-    flexGrow: 1,
-  },
-  logoContainer: {
-    marginBottom: 16,
-  },
-  logo: {
-    width: 80,
-    height: 80,
-    backgroundColor: "#8B5CF6",
-    borderRadius: 20,
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#8B5CF6",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    elevation: 20,
-  },
-  logoDot: {
-    width: 24,
-    height: 24,
-    backgroundColor: "white",
+  root: { flex: 1, backgroundColor: palette.bg },
+  scroll: { flexGrow: 1, paddingHorizontal: 22, paddingBottom: 32 },
+
+  topBar: { height: 48, justifyContent: "center" },
+  backButton: {
+    width: 40,
+    height: 40,
     borderRadius: 12,
-  },
-  title: {
-    fontSize: 42,
-    fontWeight: "700",
-    color: "#C084FC",
-    marginBottom: 12,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: "#94A3B8",
-    marginBottom: 50,
-  },
-  tabContainer: {
-    flexDirection: "row",
-    backgroundColor: "#1E2937",
-    borderRadius: 16,
-    padding: 6,
-    marginBottom: 32,
-    width: "100%",
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 14,
-    alignItems: "center",
-    borderRadius: 12,
-  },
-  activeTab: {
-    backgroundColor: "#8B5CF6",
-  },
-  tabText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#94A3B8",
-  },
-  activeTabText: {
-    color: "white",
-  },
-  form: {
-    width: "100%",
-  },
-  label: {
-    color: "#94A3B8",
-    fontSize: 13,
-    fontWeight: "600",
-    marginBottom: 8,
-    marginTop: 16,
-  },
-  input: {
-    backgroundColor: "#1E2937",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    height: 56,
-    color: "white",
-    fontSize: 16,
-  },
-  passwordContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#1E2937",
-    borderRadius: 12,
-    height: 56,
-  },
-  passwordInput: {
-    flex: 1,
-    paddingHorizontal: 16,
-    color: "white",
-    fontSize: 16,
-  },
-  eyeIcon: {
-    paddingHorizontal: 16,
-  },
-  button: {
-    backgroundColor: "#8B5CF6",
-    height: 56,
-    borderRadius: 16,
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: 32,
-    shadowColor: "#8B5CF6",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 10,
-  },
-  buttonText: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  errorContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#1E2937",
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 16,
-    borderLeftWidth: 4,
-    borderLeftColor: "#EF4444",
-  },
-  errorText: {
-    color: "#EF4444",
-    fontSize: 14,
-    fontWeight: "600",
-    marginLeft: 8,
-    flex: 1,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  orSeparator: {
-    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 24,
-    gap: 12,
-  },
-  line: {
-    flex: 1,
-    height: 1,
-    backgroundColor: "#334155",
-  },
-  orText: {
-    color: "#94A3B8",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  googleButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#F8FAFC",
-    height: 56,
-    borderRadius: 16,
-    marginTop: 18,
+    backgroundColor: "rgba(255,255,255,0.06)",
     borderWidth: 1,
-    borderColor: "#CBD5E1",
+    borderColor: palette.border,
   },
-  googleButtonText: {
-    color: "#1F2937",
-    fontSize: 16,
-    fontWeight: "700",
-    marginLeft: 10,
+
+  brandRow: { flexDirection: "row", alignItems: "center", gap: 14, marginTop: 8, marginBottom: 28 },
+  brandName: { color: palette.text, fontSize: 22, fontWeight: "800", letterSpacing: 0.3 },
+
+  title: { color: palette.text, fontSize: 30, fontWeight: "800", letterSpacing: -0.5 },
+  subtitle: { color: palette.textMuted, fontSize: 15, lineHeight: 22, marginTop: 8 },
+
+  card: {
+    marginTop: 26,
+    padding: 20,
+    borderRadius: radius.xl,
+    backgroundColor: "rgba(13, 19, 34, 0.82)",
+    borderWidth: 1,
+    borderColor: palette.border,
   },
+
+  tabs: {
+    flexDirection: "row",
+    padding: 4,
+    borderRadius: radius.md,
+    backgroundColor: palette.bg,
+    borderWidth: 1,
+    borderColor: palette.border,
+    marginBottom: 4,
+  },
+  tabPill: {
+    position: "absolute",
+    top: 4,
+    left: 4,
+    bottom: 4,
+    borderRadius: 11,
+    backgroundColor: palette.surfaceRaised,
+    borderWidth: 1,
+    borderColor: palette.borderStrong,
+  },
+  tab: { flex: 1, height: 42, alignItems: "center", justifyContent: "center" },
+  tabText: { color: palette.textMuted, fontSize: 15, fontWeight: "600" },
+  tabTextActive: { color: palette.text },
+
+  forgotRow: { alignItems: "flex-end", marginTop: 14 },
+
+  resendRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", marginTop: 22 },
+  mutedText: { color: palette.textMuted, fontSize: 14 },
+  hint: { color: palette.textFaint, fontSize: 13, textAlign: "center", marginTop: 14, lineHeight: 19 },
+
 });

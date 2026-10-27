@@ -5,9 +5,12 @@ import { useEffect } from 'react';
 import 'react-native-reanimated';
 
 import { setupCallKeep } from '@/app/services/voipPushService';
+import { CALLS_ENABLED } from '@/constants/features';
 
-// Initialize native call UI early
-setupCallKeep();
+// Initialize native call UI early (skipped while calls are disabled)
+if (CALLS_ENABLED) {
+  setupCallKeep();
+}
 
 import { activeChatIdRef } from '@/app/screens/chat/ChatScreen';
 import { AuthProvider, useAuth } from '@/context/AuthContext';

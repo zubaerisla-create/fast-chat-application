@@ -10,7 +10,8 @@ interface AuthContextType {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   googleLogin: (idToken: string) => Promise<void>;
-  sendOTP: (email: string) => Promise<void>;
+  sendOTP: (email: string, username?: string) => Promise<void>;
+  resetPassword: (email: string, otp: string, newPassword: string) => Promise<void>;
   register: (
     username: string,
     email: string,
@@ -127,10 +128,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-  const sendOTP = async (email: string) => {
+  const sendOTP = async (email: string, username?: string) => {
     try {
       setIsLoading(true);
-      await authService.sendOTP(email);
+      await authService.sendOTP(email, username);
     } catch (error) {
       throw error;
     } finally {
@@ -161,6 +162,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       // Register push token — auth token is now in AsyncStorage
       registerForPushNotifications().catch(err =>
         console.warn("Push token registration failed after register:", err)
+      );
+    } catch (error) {
+      setIsAuthenticated(false);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const resetPassword = async (email: string, otp: string, newPassword: string) => {
+    try {
+      setIsLoading(true);
+      const { user: loggedInUser } = await authService.resetPassword(email, otp, newPassword);
+      setUser(loggedInUser);
+      setIsAuthenticated(true);
+
+      await socketService.connect();
+      const userId = loggedInUser.id || loggedInUser._id;
+      if (userId) socketService.notifyOnline(userId.toString());
+
+      registerForPushNotifications().catch(err =>
+        console.warn("Push token registration failed after password reset:", err)
       );
     } catch (error) {
       setIsAuthenticated(false);
@@ -222,6 +245,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     isAuthenticated,
     isLoading,
     sendOTP,
+    resetPassword,
     login,
     googleLogin,
     register,

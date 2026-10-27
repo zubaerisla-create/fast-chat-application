@@ -1,5 +1,6 @@
 import { VoicePlayer } from "@/components/chat/VoicePlayer";
 import { useAuth } from "@/context/AuthContext";
+import { CALLS_ENABLED } from "@/constants/features";
 import { useCall } from "@/context/CallContext";
 import conversationsService, { MessageReaction } from "@/services/conversationsService";
 import socketService from "@/services/socketService";
@@ -167,7 +168,7 @@ const SwipeableMessage: React.FC<SwipeableMessageProps> = ({ children, onReply, 
           },
         ]}
       >
-        <Ionicons name="arrow-undo" size={20} color="#8B5CF6" />
+        <Ionicons name="arrow-undo" size={20} color="#5B7CFF" />
       </Animated.View>
 
       {/* Right Icon (revealed when swiping left) */}
@@ -180,7 +181,7 @@ const SwipeableMessage: React.FC<SwipeableMessageProps> = ({ children, onReply, 
           },
         ]}
       >
-        <Ionicons name="arrow-undo" size={20} color="#8B5CF6" />
+        <Ionicons name="arrow-undo" size={20} color="#5B7CFF" />
       </Animated.View>
 
       <Animated.View
@@ -365,7 +366,7 @@ const MessageItem = React.memo<MessageItemProps>(({
     <View style={{ width: "100%" }}>
       {showDateSeparator && (
         <View style={styles.dateContainer}>
-          <LinearGradient colors={["#1E293B", "#0F172A"]} style={styles.datePill}>
+          <LinearGradient colors={["#111829", "#070B14"]} style={styles.datePill}>
             <Text style={styles.dateText}>{formatChatSeparatorDate(item.timestamp)}</Text>
           </LinearGradient>
         </View>
@@ -385,7 +386,7 @@ const MessageItem = React.memo<MessageItemProps>(({
             {targetUserProfileAvatar ? (
               <Image source={{ uri: targetUserProfileAvatar }} style={styles.avatarImage} />
             ) : (
-              <LinearGradient colors={["#6366F1", "#8B5CF6"]} style={styles.avatarGradient}>
+              <LinearGradient colors={["#7C5CFF", "#5B7CFF"]} style={styles.avatarGradient}>
                 <Text style={styles.avatarText}>{chatName.charAt(0).toUpperCase()}</Text>
               </LinearGradient>
             )}
@@ -406,7 +407,7 @@ const MessageItem = React.memo<MessageItemProps>(({
             >
               {item.isMe ? (
                 <LinearGradient
-                  colors={["#7C3AED", "#6D28D9"]}
+                  colors={["#7C5CFF", "#4F8BFF"]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                   style={[styles.bubbleInner, isImageOnly && { padding: 0 }]}
@@ -1390,20 +1391,20 @@ export default function ChatScreen() {
 
   if (isLoading) {
     return (
-      <LinearGradient colors={["#0F172A", "#1E1B4B"]} style={{ flex: 1 }}>
+      <LinearGradient colors={["#070B14", "#0D1322"]} style={{ flex: 1 }}>
         <SafeAreaView style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-          <StatusBar barStyle="light-content" backgroundColor="#0F172A" />
-          <ActivityIndicator size="large" color="#8B5CF6" />
-          <Text style={{ color: "#64748B", marginTop: 12, fontSize: 14 }}>Loading messages...</Text>
+          <StatusBar barStyle="light-content" backgroundColor="#070B14" />
+          <ActivityIndicator size="large" color="#5B7CFF" />
+          <Text style={{ color: "#5B6580", marginTop: 12, fontSize: 14 }}>Loading messages...</Text>
         </SafeAreaView>
       </LinearGradient>
     );
   }
 
   return (
-    <LinearGradient colors={["#0F172A", "#0D1117"]} style={{ flex: 1 }}>
+    <LinearGradient colors={["#070B14", "#070B14"]} style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1 }}>
-        <StatusBar barStyle="light-content" backgroundColor="#0F172A" />
+        <StatusBar barStyle="light-content" backgroundColor="#070B14" />
 
         {/* ── KeyboardAvoidingView wraps ONLY the content below the header ── */}
         <KeyboardAvoidingView
@@ -1422,7 +1423,7 @@ export default function ChatScreen() {
               },
             ]}
           >
-            <LinearGradient colors={["#1A1F35", "#141929"]} style={styles.headerGradient}>
+            <LinearGradient colors={["#0D1322", "#0A0F1C"]} style={styles.headerGradient}>
               <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
                 <Ionicons name="chevron-back" size={26} color="#E2E8F0" />
               </TouchableOpacity>
@@ -1432,7 +1433,7 @@ export default function ChatScreen() {
                   {targetUserProfile?.avatar ? (
                     <Image source={{ uri: targetUserProfile.avatar }} style={styles.headerAvatarImage} />
                   ) : (
-                    <LinearGradient colors={["#6366F1", "#8B5CF6"]} style={styles.headerAvatarGradient}>
+                    <LinearGradient colors={["#7C5CFF", "#5B7CFF"]} style={styles.headerAvatarGradient}>
                       <Text style={styles.headerAvatarText}>{chatName.charAt(0).toUpperCase()}</Text>
                     </LinearGradient>
                   )}
@@ -1456,19 +1457,23 @@ export default function ChatScreen() {
               </TouchableOpacity>
 
               <View style={styles.headerActions}>
-                <TouchableOpacity onPress={handleAudioCall} style={styles.iconButton}>
-                  <LinearGradient colors={["#1E293B", "#0F172A"]} style={styles.iconButtonGradient}>
-                    <Ionicons name="call-outline" size={20} color="#A78BFA" />
-                  </LinearGradient>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={handleVideoCall} style={styles.iconButton}>
-                  <LinearGradient colors={["#1E293B", "#0F172A"]} style={styles.iconButtonGradient}>
-                    <Ionicons name="videocam-outline" size={20} color="#A78BFA" />
-                  </LinearGradient>
-                </TouchableOpacity>
+                {CALLS_ENABLED && (
+                  <>
+                    <TouchableOpacity onPress={handleAudioCall} style={styles.iconButton}>
+                      <LinearGradient colors={["#111829", "#070B14"]} style={styles.iconButtonGradient}>
+                        <Ionicons name="call-outline" size={20} color="#8B7CFF" />
+                      </LinearGradient>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={handleVideoCall} style={styles.iconButton}>
+                      <LinearGradient colors={["#111829", "#070B14"]} style={styles.iconButtonGradient}>
+                        <Ionicons name="videocam-outline" size={20} color="#8B7CFF" />
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </>
+                )}
                 <TouchableOpacity style={styles.iconButton} onPress={() => setContactModalVisible(true)}>
-                  <LinearGradient colors={["#1E293B", "#0F172A"]} style={styles.iconButtonGradient}>
-                    <Ionicons name="ellipsis-vertical" size={20} color="#A78BFA" />
+                  <LinearGradient colors={["#111829", "#070B14"]} style={styles.iconButtonGradient}>
+                    <Ionicons name="ellipsis-vertical" size={20} color="#8B7CFF" />
                   </LinearGradient>
                 </TouchableOpacity>
               </View>
@@ -1513,7 +1518,7 @@ export default function ChatScreen() {
             {replyingTo && (
               <View style={styles.replyBanner}>
                 <View style={styles.replyBannerIcon}>
-                  <Ionicons name="arrow-undo-outline" size={18} color="#8B5CF6" />
+                  <Ionicons name="arrow-undo-outline" size={18} color="#5B7CFF" />
                 </View>
                 <View style={styles.replyBannerTextContainer}>
                   <Text style={styles.replyBannerLabel}>
@@ -1522,12 +1527,12 @@ export default function ChatScreen() {
                   <Text style={styles.replyBannerText} numberOfLines={1}>{replyingTo.text}</Text>
                 </View>
                 <TouchableOpacity onPress={cancelReply} style={styles.replyCancelButton}>
-                  <Ionicons name="close-circle" size={20} color="#94A3B8" />
+                  <Ionicons name="close-circle" size={20} color="#8D97AD" />
                 </TouchableOpacity>
               </View>
             )}
             {recordedAudioPreview ? (
-              <LinearGradient colors={["#1E293B", "#0F172A"]} style={styles.previewBannerContainer}>
+              <LinearGradient colors={["#111829", "#070B14"]} style={styles.previewBannerContainer}>
                 {/* Trash/Delete Button */}
                 <TouchableOpacity onPress={handleDeleteAudioPreview} style={styles.previewDiscardBtn}>
                   <Ionicons name="trash-outline" size={22} color="#EF4444" />
@@ -1546,7 +1551,7 @@ export default function ChatScreen() {
                     </Text>
                     {recordedAudioPreview.isUploading ? (
                       <View style={styles.uploadingStateContainer}>
-                        <ActivityIndicator size="small" color="#8B5CF6" style={{ marginRight: 6 }} />
+                        <ActivityIndicator size="small" color="#5B7CFF" style={{ marginRight: 6 }} />
                         <Text style={styles.uploadingStateText}>Uploading...</Text>
                       </View>
                     ) : (
@@ -1561,13 +1566,13 @@ export default function ChatScreen() {
                   disabled={recordedAudioPreview.isUploading}
                   style={[styles.previewSendBtn, recordedAudioPreview.isUploading && { opacity: 0.5 }]}
                 >
-                  <LinearGradient colors={["#7C3AED", "#6D28D9"]} style={styles.previewSendBtnGradient}>
+                  <LinearGradient colors={["#6A4AF0", "#3F7AF0"]} style={styles.previewSendBtnGradient}>
                     <Ionicons name="send" size={18} color="white" />
                   </LinearGradient>
                 </TouchableOpacity>
               </LinearGradient>
             ) : isRecording ? (
-              <LinearGradient colors={["#1E293B", "#0F172A"]} style={styles.previewBannerContainer}>
+              <LinearGradient colors={["#111829", "#070B14"]} style={styles.previewBannerContainer}>
                 {/* Trash/Delete Button */}
                 <TouchableOpacity onPress={cancelRecording} style={styles.previewDiscardBtn}>
                   <Ionicons name="trash-outline" size={22} color="#EF4444" />
@@ -1594,19 +1599,19 @@ export default function ChatScreen() {
                 </TouchableOpacity>
               </LinearGradient>
             ) : (
-              <LinearGradient colors={["#1A1F35", "#141929"]} style={styles.inputContainer}>
+              <LinearGradient colors={["#0D1322", "#0A0F1C"]} style={styles.inputContainer}>
                 <TouchableOpacity style={styles.attachButton} onPress={handleAttachImage}>
-                  <Ionicons name="image-outline" size={22} color="#6366F1" />
+                  <Ionicons name="image-outline" size={22} color="#7C5CFF" />
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.attachButton} onPress={handleAttachFile}>
-                  <Ionicons name="attach" size={22} color="#6366F1" />
+                  <Ionicons name="attach" size={22} color="#7C5CFF" />
                 </TouchableOpacity>
 
                 <TextInput
                   ref={inputRef}
                   style={styles.input}
                   placeholder={`Message ${chatName}...`}
-                  placeholderTextColor="#475569"
+                  placeholderTextColor="#2A3754"
                   value={messageText}
                   onChangeText={handleTextChange}
                   onFocus={handleFocus}
@@ -1623,7 +1628,7 @@ export default function ChatScreen() {
                     onPress={handleSendMessage}
                     disabled={isSending || isInitializing}
                   >
-                    <LinearGradient colors={["#7C3AED", "#6D28D9"]} style={styles.sendButtonGradient}>
+                    <LinearGradient colors={["#6A4AF0", "#3F7AF0"]} style={styles.sendButtonGradient}>
                       {isSending || isInitializing ? (
                         <ActivityIndicator color="white" size="small" />
                       ) : (
@@ -1637,7 +1642,7 @@ export default function ChatScreen() {
                     onPress={startRecording}
                     onLongPress={startRecording}
                   >
-                    <Ionicons name="mic-outline" size={22} color="#6366F1" />
+                    <Ionicons name="mic-outline" size={22} color="#7C5CFF" />
                   </TouchableOpacity>
                 )}
               </LinearGradient>
@@ -1648,20 +1653,20 @@ export default function ChatScreen() {
         {/* ── Contact Info Modal ── */}
         <Modal animationType="slide" transparent visible={contactModalVisible} onRequestClose={() => setContactModalVisible(false)}>
           <View style={styles.modalOverlay}>
-            <LinearGradient colors={["#1A1F35", "#0F172A"]} style={styles.modalContent}>
+            <LinearGradient colors={["#0D1322", "#070B14"]} style={styles.modalContent}>
               <View style={styles.modalHandle} />
 
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Contact Info</Text>
                 <TouchableOpacity onPress={() => setContactModalVisible(false)} style={styles.modalCloseBtn}>
-                  <Ionicons name="close" size={22} color="#94A3B8" />
+                  <Ionicons name="close" size={22} color="#8D97AD" />
                 </TouchableOpacity>
               </View>
 
               {isLoadingProfile ? (
                 <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-                  <ActivityIndicator size="large" color="#8B5CF6" />
-                  <Text style={{ color: "#94A3B8", marginTop: 10 }}>Loading profile...</Text>
+                  <ActivityIndicator size="large" color="#5B7CFF" />
+                  <Text style={{ color: "#8D97AD", marginTop: 10 }}>Loading profile...</Text>
                 </View>
               ) : (
                 <>
@@ -1670,7 +1675,7 @@ export default function ChatScreen() {
                       {targetUserProfile?.avatar ? (
                         <Image source={{ uri: targetUserProfile.avatar }} style={styles.profileAvatarImage} />
                       ) : (
-                        <LinearGradient colors={["#6366F1", "#8B5CF6"]} style={styles.profileAvatarGradient}>
+                        <LinearGradient colors={["#7C5CFF", "#5B7CFF"]} style={styles.profileAvatarGradient}>
                           <Text style={styles.profileAvatarText}>{chatName.charAt(0).toUpperCase()}</Text>
                         </LinearGradient>
                       )}
@@ -1678,20 +1683,22 @@ export default function ChatScreen() {
                     </View>
                     <Text style={styles.contactName}>{targetUserProfile?.username || chatName}</Text>
                     <Text style={styles.contactEmail}>{targetUserProfile?.email || "No email available"}</Text>
+                    {CALLS_ENABLED && (
                     <View style={styles.profileActions}>
                       <TouchableOpacity style={styles.profileActionBtn} onPress={handleAudioCall}>
-                        <LinearGradient colors={["#1E293B", "#0F172A"]} style={styles.profileActionGradient}>
-                          <Ionicons name="call-outline" size={22} color="#A78BFA" />
+                        <LinearGradient colors={["#111829", "#070B14"]} style={styles.profileActionGradient}>
+                          <Ionicons name="call-outline" size={22} color="#8B7CFF" />
                         </LinearGradient>
                         <Text style={styles.profileActionLabel}>Audio</Text>
                       </TouchableOpacity>
                       <TouchableOpacity style={styles.profileActionBtn} onPress={handleVideoCall}>
-                        <LinearGradient colors={["#1E293B", "#0F172A"]} style={styles.profileActionGradient}>
-                          <Ionicons name="videocam-outline" size={22} color="#A78BFA" />
+                        <LinearGradient colors={["#111829", "#070B14"]} style={styles.profileActionGradient}>
+                          <Ionicons name="videocam-outline" size={22} color="#8B7CFF" />
                         </LinearGradient>
                         <Text style={styles.profileActionLabel}>Video</Text>
                       </TouchableOpacity>
                     </View>
+                    )}
                   </View>
 
                   <View style={styles.infoCard}>
@@ -1732,7 +1739,7 @@ export default function ChatScreen() {
                         />
                       ) : (
                         <View style={styles.noContent}>
-                          <Ionicons name="image-outline" size={48} color="#334155" />
+                          <Ionicons name="image-outline" size={48} color="#1E2940" />
                           <Text style={styles.noContentText}>No shared images</Text>
                         </View>
                       )}
@@ -1747,11 +1754,11 @@ export default function ChatScreen() {
                           renderItem={({ item }) => (
                             <View style={styles.fileItem}>
                               <View style={styles.fileIcon}>
-                                <Ionicons name="document-text-outline" size={22} color="#6366F1" />
+                                <Ionicons name="document-text-outline" size={22} color="#7C5CFF" />
                               </View>
                               <View style={{ flex: 1 }}>
                                 <Text style={{ color: "white", fontSize: 14 }} numberOfLines={1}>{item.fileName || "Unnamed File"}</Text>
-                                <Text style={{ color: "#64748B", fontSize: 12 }}>{new Date(item.createdAt).toLocaleDateString()}</Text>
+                                <Text style={{ color: "#5B6580", fontSize: 12 }}>{new Date(item.createdAt).toLocaleDateString()}</Text>
                               </View>
                             </View>
                           )}
@@ -1759,7 +1766,7 @@ export default function ChatScreen() {
                         />
                       ) : (
                         <View style={styles.noContent}>
-                          <Ionicons name="folder-open-outline" size={48} color="#334155" />
+                          <Ionicons name="folder-open-outline" size={48} color="#1E2940" />
                           <Text style={styles.noContentText}>No shared files</Text>
                         </View>
                       )}
@@ -1806,7 +1813,7 @@ export default function ChatScreen() {
                         }
                       }}
                     >
-                      <Ionicons name="arrow-undo-outline" size={20} color="#94A3B8" style={styles.actionIcon} />
+                      <Ionicons name="arrow-undo-outline" size={20} color="#8D97AD" style={styles.actionIcon} />
                       <Text style={styles.actionText}>Reply</Text>
                     </TouchableOpacity>
 
@@ -1820,7 +1827,7 @@ export default function ChatScreen() {
                           }
                         }}
                       >
-                        <Ionicons name="copy-outline" size={20} color="#94A3B8" style={styles.actionIcon} />
+                        <Ionicons name="copy-outline" size={20} color="#8D97AD" style={styles.actionIcon} />
                         <Text style={styles.actionText}>Copy Text</Text>
                       </TouchableOpacity>
                     )}
@@ -1861,12 +1868,12 @@ export default function ChatScreen() {
         {/* ── Reaction Details Modal ── */}
         <Modal animationType="slide" transparent visible={reactionDetailsModalVisible} onRequestClose={() => setReactionDetailsModalVisible(false)}>
           <View style={styles.modalOverlay}>
-            <LinearGradient colors={["#1A1F35", "#0F172A"]} style={styles.modalContent}>
+            <LinearGradient colors={["#0D1322", "#070B14"]} style={styles.modalContent}>
               <View style={styles.modalHandle} />
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Reactions</Text>
                 <TouchableOpacity onPress={() => setReactionDetailsModalVisible(false)} style={styles.modalCloseBtn}>
-                  <Ionicons name="close" size={22} color="#94A3B8" />
+                  <Ionicons name="close" size={22} color="#8D97AD" />
                 </TouchableOpacity>
               </View>
               <ScrollView style={{ flex: 1, marginBottom: 20 }}>
@@ -1887,7 +1894,7 @@ export default function ChatScreen() {
                         {reaction.avatar ? (
                           <Image source={{ uri: reaction.avatar }} style={styles.reactionDetailAvatar} />
                         ) : (
-                          <LinearGradient colors={["#6366F1", "#8B5CF6"]} style={styles.reactionDetailAvatarGradient}>
+                          <LinearGradient colors={["#7C5CFF", "#5B7CFF"]} style={styles.reactionDetailAvatarGradient}>
                             <Text style={styles.reactionDetailAvatarText}>
                               {(reaction.username || "U").charAt(0).toUpperCase()}
                             </Text>
@@ -1929,18 +1936,18 @@ const styles = StyleSheet.create({
   backButton: { padding: 6, marginRight: 2 },
   headerUser: { flex: 1, flexDirection: "row", alignItems: "center" },
   headerAvatarWrapper: { position: "relative" },
-  headerAvatarImage: { width: 42, height: 42, borderRadius: 21, borderWidth: 2, borderColor: "#6366F1" },
+  headerAvatarImage: { width: 42, height: 42, borderRadius: 21, borderWidth: 2, borderColor: "#7C5CFF" },
   headerAvatarGradient: { width: 42, height: 42, borderRadius: 21, justifyContent: "center", alignItems: "center" },
   headerAvatarText: { color: "white", fontSize: 18, fontWeight: "700" },
   onlineBadge: {
     position: "absolute", bottom: 1, right: 1,
     width: 11, height: 11, borderRadius: 6,
-    backgroundColor: "#10B981", borderWidth: 2, borderColor: "#141929",
+    backgroundColor: "#10B981", borderWidth: 2, borderColor: "#0A0F1C",
   },
   headerName: { color: "#F1F5F9", fontSize: 16, fontWeight: "700", letterSpacing: 0.2 },
-  status: { color: "#64748B", fontSize: 12, marginTop: 1 },
+  status: { color: "#5B6580", fontSize: 12, marginTop: 1 },
   onlineStatus: { color: "#10B981", fontWeight: "600" },
-  typingStatus: { color: "#A78BFA", fontWeight: "600" },
+  typingStatus: { color: "#8B7CFF", fontWeight: "600" },
   headerActions: { flexDirection: "row", gap: 6 },
   iconButton: {},
   iconButtonGradient: {
@@ -1955,11 +1962,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingVertical: 5, borderRadius: 20,
     borderWidth: 1, borderColor: "rgba(99,102,241,0.2)",
   },
-  dateText: { color: "#94A3B8", fontSize: 12, fontWeight: "600", letterSpacing: 0.5 },
+  dateText: { color: "#8D97AD", fontSize: 12, fontWeight: "600", letterSpacing: 0.5 },
 
   /* ── Timestamp on tap ── */
   bubbleTimestampContainer: { marginBottom: 4, marginTop: 2 },
-  bubbleTimestampText: { color: "#64748B", fontSize: 11, fontWeight: "600" },
+  bubbleTimestampText: { color: "#5B6580", fontSize: 11, fontWeight: "600" },
 
   /* ── Messages ── */
   messagesList: { flex: 1 },
@@ -1983,7 +1990,7 @@ const styles = StyleSheet.create({
   myBubble: {
     borderBottomRightRadius: 4,
     alignSelf: "flex-end",
-    shadowColor: "#7C3AED",
+    shadowColor: "#6A4AF0",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 4,
@@ -1991,9 +1998,9 @@ const styles = StyleSheet.create({
   },
   theirBubble: {
     borderBottomLeftRadius: 4,
-    backgroundColor: "#1E293B",
+    backgroundColor: "#111829",
     borderWidth: 1,
-    borderColor: "rgba(99,102,241,0.15)",
+    borderColor: "#1E2940",
     alignSelf: "flex-start",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
@@ -2016,7 +2023,7 @@ const styles = StyleSheet.create({
   },
   theirReplyQuoteContainer: {
     backgroundColor: "rgba(15, 23, 42, 0.4)",
-    borderLeftColor: "#8B5CF6",
+    borderLeftColor: "#5B7CFF",
   },
   replyQuoteContent: {
     flexDirection: "column",
@@ -2030,7 +2037,7 @@ const styles = StyleSheet.create({
     color: "#DDD6FE",
   },
   theirReplyQuoteLabel: {
-    color: "#A78BFA",
+    color: "#8B7CFF",
   },
   replyQuoteText: {
     fontSize: 12,
@@ -2040,14 +2047,14 @@ const styles = StyleSheet.create({
     color: "rgba(255, 255, 255, 0.8)",
   },
   theirReplyQuoteText: {
-    color: "#94A3B8",
+    color: "#8D97AD",
   },
   myText: { color: "#F1F5F9", fontSize: 15, lineHeight: 22, flexShrink: 1 },
   theirText: { color: "#CBD5E1", fontSize: 15, lineHeight: 22, flexShrink: 1 },
   messageImage: { width: 220, height: 220, borderRadius: 14, marginBottom: 6 },
   timeRow: { flexDirection: "row", alignItems: "center", alignSelf: "flex-end", marginTop: 4 },
   myTimeText: { fontSize: 11, color: "rgba(255,255,255,0.55)" },
-  theirTimeText: { fontSize: 11, color: "#475569" },
+  theirTimeText: { fontSize: 11, color: "#2A3754" },
 
   swipeContainer: {
     position: "relative",
@@ -2102,11 +2109,11 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: "#A78BFA",
+    backgroundColor: "#8B7CFF",
     marginHorizontal: 2,
   },
   typingText: {
-    color: "#94A3B8",
+    color: "#8D97AD",
     fontSize: 12,
     fontWeight: "500",
   },
@@ -2119,7 +2126,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(99, 102, 241, 0.2)",
     borderLeftWidth: 4,
-    borderLeftColor: "#8B5CF6",
+    borderLeftColor: "#5B7CFF",
     paddingHorizontal: 12,
     paddingVertical: 8,
     marginBottom: 8,
@@ -2130,7 +2137,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   replyBannerTextContainer: { flex: 1, paddingRight: 10 },
-  replyBannerLabel: { color: "#94A3B8", fontSize: 11, marginBottom: 1 },
+  replyBannerLabel: { color: "#8D97AD", fontSize: 11, marginBottom: 1 },
   replyBannerLabelBold: { fontWeight: "700", color: "#DDD6FE" },
   replyBannerText: { color: "#E2E8F0", fontSize: 13, lineHeight: 16 },
   replyCancelButton: { padding: 4 },
@@ -2190,7 +2197,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#6366F1",
+    backgroundColor: "#7C5CFF",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 10,
@@ -2210,7 +2217,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   uploadingStateText: {
-    color: "#8B5CF6",
+    color: "#5B7CFF",
     fontSize: 11,
     fontWeight: "500",
   },
@@ -2242,45 +2249,45 @@ const styles = StyleSheet.create({
   /* ── Modal ── */
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "flex-end" },
   modalContent: { borderTopLeftRadius: 28, borderTopRightRadius: 28, minHeight: "88%", paddingHorizontal: 20, paddingTop: 12, paddingBottom: 20 },
-  modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: "#334155", alignSelf: "center", marginBottom: 16 },
+  modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: "#1E2940", alignSelf: "center", marginBottom: 16 },
   modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 24 },
   modalTitle: { fontSize: 20, fontWeight: "700", color: "#F1F5F9" },
-  modalCloseBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#1E293B", justifyContent: "center", alignItems: "center" },
+  modalCloseBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#111829", justifyContent: "center", alignItems: "center" },
 
   /* ── Profile in modal ── */
   profileContainer: { alignItems: "center", marginBottom: 24 },
   profileAvatarWrapper: { position: "relative", marginBottom: 14 },
-  profileAvatarImage: { width: 100, height: 100, borderRadius: 50, borderWidth: 3, borderColor: "#6366F1" },
+  profileAvatarImage: { width: 100, height: 100, borderRadius: 50, borderWidth: 3, borderColor: "#7C5CFF" },
   profileAvatarGradient: { width: 100, height: 100, borderRadius: 50, justifyContent: "center", alignItems: "center" },
   profileAvatarText: { fontSize: 42, fontWeight: "700", color: "white" },
   profileOnlineBadge: {
     position: "absolute", bottom: 4, right: 4,
     width: 16, height: 16, borderRadius: 8,
-    backgroundColor: "#10B981", borderWidth: 3, borderColor: "#1A1F35",
+    backgroundColor: "#10B981", borderWidth: 3, borderColor: "#0D1322",
   },
   contactName: { fontSize: 22, fontWeight: "700", color: "white", marginBottom: 4 },
-  contactEmail: { fontSize: 14, color: "#64748B", marginBottom: 20 },
+  contactEmail: { fontSize: 14, color: "#5B6580", marginBottom: 20 },
   profileActions: { flexDirection: "row", gap: 20 },
   profileActionBtn: { alignItems: "center", gap: 6 },
   profileActionGradient: { width: 52, height: 52, borderRadius: 26, justifyContent: "center", alignItems: "center", borderWidth: 1, borderColor: "rgba(99,102,241,0.25)" },
-  profileActionLabel: { color: "#94A3B8", fontSize: 12, fontWeight: "600" },
+  profileActionLabel: { color: "#8D97AD", fontSize: 12, fontWeight: "600" },
 
   /* ── Info card ── */
-  infoCard: { backgroundColor: "#1E293B", borderRadius: 16, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: "rgba(99,102,241,0.1)" },
-  infoLabel: { color: "#64748B", fontSize: 11, fontWeight: "700", letterSpacing: 1, marginBottom: 6 },
+  infoCard: { backgroundColor: "#111829", borderRadius: 16, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: "rgba(99,102,241,0.1)" },
+  infoLabel: { color: "#5B6580", fontSize: 11, fontWeight: "700", letterSpacing: 1, marginBottom: 6 },
   infoValue: { color: "#E2E8F0", fontSize: 15 },
 
   /* ── Shared content ── */
   sharedContentHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
-  sectionTitle: { color: "#64748B", fontSize: 11, fontWeight: "700", letterSpacing: 1 },
-  tabButtons: { flexDirection: "row", backgroundColor: "#1E293B", borderRadius: 12, padding: 3 },
+  sectionTitle: { color: "#5B6580", fontSize: 11, fontWeight: "700", letterSpacing: 1 },
+  tabButtons: { flexDirection: "row", backgroundColor: "#111829", borderRadius: 12, padding: 3 },
   tabButton: { paddingHorizontal: 18, paddingVertical: 7, borderRadius: 10 },
-  activeTabButton: { backgroundColor: "#6366F1" },
-  tabText: { color: "#64748B", fontWeight: "600", fontSize: 13 },
+  activeTabButton: { backgroundColor: "#7C5CFF" },
+  tabText: { color: "#5B6580", fontWeight: "600", fontSize: 13 },
   activeTabText: { color: "white", fontWeight: "700", fontSize: 13 },
   noContent: { flex: 1, justifyContent: "center", alignItems: "center", paddingVertical: 40 },
-  noContentText: { color: "#475569", marginTop: 12, fontSize: 15 },
-  fileItem: { flexDirection: "row", alignItems: "center", backgroundColor: "#1E293B", borderRadius: 14, padding: 14, marginBottom: 10, gap: 12 },
+  noContentText: { color: "#2A3754", marginTop: 12, fontSize: 15 },
+  fileItem: { flexDirection: "row", alignItems: "center", backgroundColor: "#111829", borderRadius: 14, padding: 14, marginBottom: 10, gap: 12 },
   fileIcon: { width: 42, height: 42, borderRadius: 12, backgroundColor: "rgba(99,102,241,0.15)", justifyContent: "center", alignItems: "center" },
 
   /* ── Image preview ── */
@@ -2300,11 +2307,11 @@ const styles = StyleSheet.create({
   },
   reactionMenuContainer: {
     width: "80%",
-    backgroundColor: "#1E293B",
+    backgroundColor: "#111829",
     borderRadius: 20,
     padding: 16,
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: "#1E2940",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -2316,13 +2323,13 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "#334155",
+    borderBottomColor: "#1E2940",
     marginBottom: 8,
   },
   emojiButton: {
     padding: 8,
     borderRadius: 12,
-    backgroundColor: "#0F172A",
+    backgroundColor: "#070B14",
     width: 40,
     height: 40,
     justifyContent: "center",
@@ -2351,7 +2358,7 @@ const styles = StyleSheet.create({
   },
   deleteActionItem: {
     borderTopWidth: 1,
-    borderTopColor: "#334155",
+    borderTopColor: "#1E2940",
     marginTop: 8,
     paddingTop: 16,
   },
@@ -2362,12 +2369,12 @@ const styles = StyleSheet.create({
     position: "absolute",
     bottom: -8,
     flexDirection: "row",
-    backgroundColor: "#1E293B",
+    backgroundColor: "#111829",
     borderRadius: 12,
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: "#1E2940",
     zIndex: 10,
     elevation: 3,
   },
@@ -2386,7 +2393,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   reactionPillCount: {
-    color: "#94A3B8",
+    color: "#8D97AD",
     fontSize: 10,
     marginLeft: 2,
     fontWeight: "600",
@@ -2409,7 +2416,7 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: "#6366F1",
+    borderColor: "#7C5CFF",
   },
   reactionDetailAvatarGradient: {
     width: 40,
@@ -2429,7 +2436,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   reactionDetailTime: {
-    color: "#64748B",
+    color: "#5B6580",
     fontSize: 12,
     marginTop: 2,
   },
