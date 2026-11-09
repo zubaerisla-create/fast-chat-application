@@ -135,6 +135,9 @@ export default function App() {
   const [friendsList, setFriendsList] = useState<User[]>([]);
   const [selectedFriendIds, setSelectedFriendIds] = useState<string[]>([]);
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+  const [groupSearchQuery, setGroupSearchQuery] = useState("");
+  const [isSearchingServerUser, setIsSearchingServerUser] = useState(false);
+  const [groupSearchError, setGroupSearchError] = useState<string | null>(null);
 
   // Conversations & Requests
   const [userConversations, setUserConversations] = useState<any[]>([]);
@@ -196,17 +199,76 @@ export default function App() {
     }
   };
 
-  // Load friends for group creation
+  // Load friends and direct conversation contacts for group creation
   const openNewGroupModal = async () => {
     setGroupTitle("");
     setGroupDescription("");
     setSelectedFriendIds([]);
+    setGroupSearchQuery("");
+    setGroupSearchError(null);
     setNewGroupModalVisible(true);
+
+    const contactsMap = new Map<string, User>();
+
+    // 1. Add all direct conversation participants
+    for (const conv of userConversations) {
+      if (conv.isGroup || conv.type === "group") continue;
+      const other = conv.otherUser || otherParticipant(conv);
+      const oid = idOf(other);
+      if (oid && oid !== myId && !contactsMap.has(oid)) {
+        contactsMap.set(oid, {
+          _id: oid,
+          id: oid,
+          username: other.username || "User",
+          email: other.email || "",
+          avatar: other.avatar || null,
+        } as User);
+      }
+    }
+
+    // 2. Add accepted friends from friends API
     try {
       const friends = await friendsService.getFriends();
-      setFriendsList(friends);
+      for (const f of friends || []) {
+        const fid = idOf(f);
+        if (fid && fid !== myId && !contactsMap.has(fid)) {
+          contactsMap.set(fid, f);
+        }
+      }
     } catch (error) {
-      console.error("Failed to load friends:", error);
+      console.warn("Could not load friends API, relying on contacts:", error);
+    }
+
+    setFriendsList(Array.from(contactsMap.values()));
+  };
+
+  const handleSearchUserForGroup = async () => {
+    const q = groupSearchQuery.trim();
+    if (!q) return;
+    setGroupSearchError(null);
+    setIsSearchingServerUser(true);
+    try {
+      const res = await usersService.searchExactUsername(q);
+      if (res && res.user) {
+        const found = res.user;
+        const fid = idOf(found);
+        if (fid === myId) {
+          setGroupSearchError("You cannot add yourself to the group.");
+          return;
+        }
+        setFriendsList((prev) => {
+          if (prev.some((u) => idOf(u) === fid)) return prev;
+          return [found, ...prev];
+        });
+        setSelectedFriendIds((prev) => (prev.includes(fid) ? prev : [...prev, fid]));
+        setGroupSearchQuery("");
+      } else {
+        setGroupSearchError(`User "${q}" not found.`);
+      }
+    } catch (err: any) {
+      setGroupSearchError(err.message || `No user found with username "${q}".`);
+    } finally {
+      setIsSearchingServerUser(false);
     }
   };
 
@@ -989,17 +1051,118 @@ export default function App() {
                 />
               </View>
 
-              <Text style={[styles.inputLabel, { marginTop: 18 }]}>
-                Select Friends ({selectedFriendIds.length} selected)
-              </Text>
-              {friendsList.length === 0 ? (
-                <View style={{ paddingVertical: 14 }}>
-                  <Text style={{ color: palette.textMuted, fontSize: 13 }}>
-                    No accepted friends yet. Send friend requests first to create a group!
+              {/* Selected Members Chips */}
+              {selectedFriendIds.length > 0 && (
+                <View style={{ marginTop: 14 }}>
+                  <Text style={[styles.inputLabel, { marginBottom: 6 }]}>
+                    Selected Members ({selectedFriendIds.length})
                   </Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
+                    {selectedFriendIds.map((id) => {
+                      const userObj = friendsList.find((f) => idOf(f) === id);
+                      return (
+                        <View
+                          key={id}
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            backgroundColor: palette.accentSoft,
+                            borderWidth: 1,
+                            borderColor: palette.accent,
+                            borderRadius: radius.pill,
+                            paddingLeft: 4,
+                            paddingRight: 8,
+                            paddingVertical: 4,
+                            gap: 6,
+                          }}
+                        >
+                          <Avatar name={userObj?.username || "User"} uri={userObj?.avatar} size={24} />
+                          <Text style={{ color: palette.text, fontSize: 12, fontWeight: "600" }}>
+                            {userObj?.username || "Selected"}
+                          </Text>
+                          <TouchableOpacity
+                            onPress={() => setSelectedFriendIds((prev) => prev.filter((i) => i !== id))}
+                            hitSlop={6}
+                          >
+                            <Ionicons name="close-circle" size={16} color={palette.accent} />
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    })}
+                  </ScrollView>
                 </View>
-              ) : (
-                friendsList.map((friend) => {
+              )}
+
+              {/* User Search & Selection */}
+              <Text style={[styles.inputLabel, { marginTop: 16 }]}>
+                Add Participants
+              </Text>
+              <View style={[styles.inputWrapper, { marginBottom: 10 }]}>
+                <Ionicons name="search" size={18} color={palette.textFaint} />
+                <TextInput
+                  style={styles.input}
+                  value={groupSearchQuery}
+                  onChangeText={(text) => {
+                    setGroupSearchQuery(text);
+                    if (groupSearchError) setGroupSearchError(null);
+                  }}
+                  onSubmitEditing={handleSearchUserForGroup}
+                  placeholder="Filter contacts or type username..."
+                  placeholderTextColor={palette.textFaint}
+                  returnKeyType="search"
+                  autoCapitalize="none"
+                />
+                {groupSearchQuery.trim().length > 0 && (
+                  <TouchableOpacity
+                    onPress={handleSearchUserForGroup}
+                    disabled={isSearchingServerUser}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                      borderRadius: radius.pill,
+                      backgroundColor: palette.accent,
+                    }}
+                  >
+                    {isSearchingServerUser ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>Find</Text>
+                    )}
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {groupSearchError && (
+                <View style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: radius.sm, backgroundColor: "rgba(244, 63, 94, 0.12)", marginBottom: 10 }}>
+                  <Text style={{ color: palette.accent, fontSize: 12 }}>{groupSearchError}</Text>
+                </View>
+              )}
+
+              {/* Members List */}
+              {(() => {
+                const q = groupSearchQuery.trim().toLowerCase();
+                const filtered = friendsList.filter((f) => {
+                  if (!q) return true;
+                  return (
+                    f.username?.toLowerCase().includes(q) ||
+                    f.email?.toLowerCase().includes(q)
+                  );
+                });
+
+                if (filtered.length === 0) {
+                  return (
+                    <View style={{ paddingVertical: 18, alignItems: "center", paddingHorizontal: 16 }}>
+                      <Ionicons name="people-circle-outline" size={38} color={palette.textFaint} />
+                      <Text style={{ color: palette.textMuted, fontSize: 13, textAlign: "center", marginTop: 6, lineHeight: 18 }}>
+                        {groupSearchQuery.trim()
+                          ? `No contacts matching "${groupSearchQuery}". Tap "Find" above to search on the server!`
+                          : "No contacts or friends found yet. Type an exact username in the search box above and tap Find to add them!"}
+                      </Text>
+                    </View>
+                  );
+                }
+
+                return filtered.map((friend) => {
                   const friendId = idOf(friend);
                   const isSelected = selectedFriendIds.includes(friendId);
                   return (
@@ -1011,11 +1174,14 @@ export default function App() {
                         );
                       }}
                       style={[styles.friendSelectRow, isSelected && styles.friendSelectRowActive]}
+                      activeOpacity={0.7}
                     >
                       <Avatar name={friend.username} uri={friend.avatar} size={40} />
                       <View style={{ flex: 1, marginLeft: 12 }}>
                         <Text style={styles.friendSelectName}>{friend.username}</Text>
-                        <Text style={styles.friendSelectEmail}>{friend.email}</Text>
+                        {friend.email ? (
+                          <Text style={styles.friendSelectEmail}>{friend.email}</Text>
+                        ) : null}
                       </View>
                       <Ionicons
                         name={isSelected ? "checkbox" : "square-outline"}
@@ -1024,8 +1190,8 @@ export default function App() {
                       />
                     </TouchableOpacity>
                   );
-                })
-              )}
+                });
+              })()}
 
               <Pressable
                 onPress={handleCreateGroup}
