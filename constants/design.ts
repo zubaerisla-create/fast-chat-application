@@ -2,29 +2,29 @@
  * Shared design tokens for the dark, premium look used across auth and home screens.
  */
 export const palette = {
-  bg: "#130913",
-  bgElevated: "#1A0C1A",
-  surface: "#210F20",
-  surfaceRaised: "#2D152B",
-  border: "#3D1B3A",
-  borderStrong: "#52224D",
-  text: "#FFF1F4",
-  textMuted: "#D4A5C1",
-  textFaint: "#9E6D8A",
+  bg: "#0B0C11",
+  bgElevated: "#12141C",
+  surface: "#181B26",
+  surfaceRaised: "#202434",
+  border: "rgba(255, 255, 255, 0.08)",
+  borderStrong: "rgba(244, 63, 94, 0.3)",
+  text: "#F8FAFC",
+  textMuted: "#94A3B8",
+  textFaint: "#64748B",
   accent: "#F43F5E",
-  accentSoft: "rgba(244, 63, 94, 0.15)",
-  success: "#34D399",
-  danger: "#F87171",
-  dangerSoft: "rgba(248, 113, 113, 0.12)",
+  accentSoft: "rgba(244, 63, 94, 0.12)",
+  success: "#10B981",
+  danger: "#F43F5E",
+  dangerSoft: "rgba(244, 63, 94, 0.12)",
   warning: "#FBBF24",
 };
 
 export const gradients = {
-  primary: ["#F43F5E", "#EC4899"] as const,
-  primaryPressed: ["#E11D48", "#DB2777"] as const,
-  glowViolet: ["rgba(244, 63, 94, 0.35)", "rgba(244, 63, 94, 0)"] as const,
-  glowBlue: ["rgba(236, 72, 153, 0.28)", "rgba(236, 72, 153, 0)"] as const,
-  card: ["rgba(38, 17, 36, 0.92)", "rgba(25, 11, 24, 0.92)"] as const,
+  primary: ["#F43F5E", "#FB7185"] as const,
+  primaryPressed: ["#E11D48", "#F43F5E"] as const,
+  glowViolet: ["rgba(244, 63, 94, 0.25)", "rgba(244, 63, 94, 0)"] as const,
+  glowBlue: ["rgba(251, 113, 133, 0.2)", "rgba(251, 113, 133, 0)"] as const,
+  card: ["rgba(24, 27, 38, 0.95)", "rgba(18, 20, 28, 0.95)"] as const,
 };
 
 // Stable per-user avatar colors, chosen from the name

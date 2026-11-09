@@ -1263,8 +1263,8 @@ export default function FinanceScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#130913" },
-  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#130913" },
+  container: { flex: 1, backgroundColor: "#0B0C11" },
+  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#0B0C11" },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -1273,7 +1273,7 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(244, 63, 94, 0.12)",
+    borderBottomColor: "rgba(255, 255, 255, 0.08)",
   },
   subBrand: { color: "#F43F5E", fontSize: 10, fontWeight: "800", letterSpacing: 1 },
   brandTitle: { color: "#FFFFFF", fontSize: 20, fontWeight: "900", marginTop: 2 },
@@ -1283,15 +1283,15 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     backgroundColor: "rgba(244, 63, 94, 0.12)",
     borderWidth: 1,
-    borderColor: "rgba(244, 63, 94, 0.25)",
+    borderColor: "rgba(255, 255, 255, 0.08)",
     alignItems: "center",
     justifyContent: "center",
   },
   tabBar: {
     paddingVertical: 10,
-    backgroundColor: "rgba(29, 14, 28, 0.7)",
+    backgroundColor: "rgba(18, 20, 28, 0.85)",
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(244, 63, 94, 0.1)",
+    borderBottomColor: "rgba(255, 255, 255, 0.06)",
   },
   tabScroll: { paddingHorizontal: 16, gap: 8 },
   tabButton: {
@@ -1303,7 +1303,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: "rgba(255, 255, 255, 0.04)",
     borderWidth: 1,
-    borderColor: "rgba(244, 63, 94, 0.15)",
+    borderColor: "rgba(255, 255, 255, 0.08)",
   },
   tabButtonActive: {
     backgroundColor: "rgba(244, 63, 94, 0.18)",
@@ -1317,9 +1317,9 @@ const styles = StyleSheet.create({
   // Signature Hero Card
   mayramaoHeroCard: {
     borderRadius: 26,
-    backgroundColor: "#1C0E1B",
+    backgroundColor: "#12141C",
     borderWidth: 1,
-    borderColor: "rgba(244, 63, 94, 0.25)",
+    borderColor: "rgba(255, 255, 255, 0.08)",
     padding: 22,
     position: "relative",
     overflow: "hidden",
@@ -1367,11 +1367,11 @@ const styles = StyleSheet.create({
   grid2: { flexDirection: "row", gap: 10 },
   decisionCard: {
     flex: 1,
-    backgroundColor: "#1C0E1B",
+    backgroundColor: "#12141C",
     borderRadius: 20,
     padding: 16,
     borderWidth: 1,
-    borderColor: "rgba(244, 63, 94, 0.15)",
+    borderColor: "rgba(255, 255, 255, 0.08)",
   },
   decisionIconWrapSafe: {
     alignSelf: "flex-start",
@@ -1414,7 +1414,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     backgroundColor: "rgba(244, 63, 94, 0.1)",
     borderWidth: 1,
-    borderColor: "rgba(244, 63, 94, 0.25)",
+    borderColor: "rgba(255, 255, 255, 0.08)",
   },
   actionBtnText: { color: "#FFFFFF", fontSize: 13, fontWeight: "800" },
 
@@ -1422,9 +1422,9 @@ const styles = StyleSheet.create({
   cardFull: {
     padding: 18,
     borderRadius: 22,
-    backgroundColor: "#1C0E1B",
+    backgroundColor: "#12141C",
     borderWidth: 1,
-    borderColor: "rgba(244, 63, 94, 0.15)",
+    borderColor: "rgba(255, 255, 255, 0.08)",
     gap: 10,
   },
   boxTitle: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
@@ -1459,9 +1459,9 @@ const styles = StyleSheet.create({
   bizCard: {
     padding: 16,
     borderRadius: 22,
-    backgroundColor: "#1C0E1B",
+    backgroundColor: "#12141C",
     borderWidth: 1,
-    borderColor: "rgba(244, 63, 94, 0.15)",
+    borderColor: "rgba(255, 255, 255, 0.08)",
     gap: 10,
   },
   bizName: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
@@ -1544,9 +1544,9 @@ const styles = StyleSheet.create({
   input: {
     height: 48,
     borderRadius: 14,
-    backgroundColor: "#120711",
+    backgroundColor: "#0B0C11",
     borderWidth: 1,
-    borderColor: "rgba(244, 63, 94, 0.18)",
+    borderColor: "rgba(255, 255, 255, 0.08)",
     paddingHorizontal: 14,
     color: "#FFFFFF",
     fontSize: 14,
@@ -1557,10 +1557,10 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 10,
     borderRadius: 12,
-    backgroundColor: "#120711",
+    backgroundColor: "#0B0C11",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "rgba(244, 63, 94, 0.18)",
+    borderColor: "rgba(255, 255, 255, 0.08)",
   },
   toggleBtnActiveFull: { backgroundColor: "rgba(244, 63, 94, 0.18)", borderColor: "#F43F5E" },
   toggleBtnActiveLoan: { backgroundColor: "rgba(236, 72, 153, 0.18)", borderColor: "#EC4899" },
@@ -1620,9 +1620,9 @@ const styles = StyleSheet.create({
   },
   modalBox: {
     borderRadius: 24,
-    backgroundColor: "#1C0E1B",
+    backgroundColor: "#12141C",
     borderWidth: 1,
-    borderColor: "rgba(244, 63, 94, 0.2)",
+    borderColor: "rgba(255, 255, 255, 0.08)",
     padding: 20,
     gap: 8,
   },
