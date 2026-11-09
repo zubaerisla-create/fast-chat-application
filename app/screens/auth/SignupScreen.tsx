@@ -117,7 +117,9 @@ export default function AuthScreen() {
   // ── Actions ──
   const handleSignIn = () =>
     run(async () => {
-      if (!EMAIL_REGEX.test(trimmedEmail)) throw new Error("Please enter a valid email.");
+      const isEmail = EMAIL_REGEX.test(trimmedEmail);
+      const isUsername = USERNAME_REGEX.test(trimmedEmail);
+      if (!isEmail && !isUsername) throw new Error("Please enter a valid email or username.");
       if (!password) throw new Error("Please enter your password.");
       await login(trimmedEmail, password);
       finish();
@@ -218,12 +220,12 @@ export default function AuthScreen() {
       return (
         <>
           <Field
-            label="Email"
-            icon="mail-outline"
-            placeholder="you@example.com"
-            keyboardType="email-address"
+            label="Email or Username"
+            icon="person-outline"
+            placeholder="you@example.com or username"
+            keyboardType="default"
             autoCapitalize="none"
-            autoComplete="email"
+            autoComplete="username"
             value={email}
             onChangeText={setEmail}
             returnKeyType="next"

@@ -1,26 +1,51 @@
 import { Tabs } from "expo-router";
 import React from "react";
-
-import { HapticTab } from "@/components/haptic-tab";
-import { Colors } from "@/constants/theme";
-import { useColorScheme } from "@/hooks/use-color-scheme";
+import { Ionicons } from "@expo/vector-icons";
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? "light"].tint,
         headerShown: false,
-        tabBarButton: HapticTab,
+        tabBarStyle: {
+          backgroundColor: "#070B14",
+          borderTopColor: "rgba(255, 255, 255, 0.08)",
+          height: 60,
+          paddingBottom: 8,
+          paddingTop: 6,
+        },
+        tabBarActiveTintColor: "#8B7CFF",
+        tabBarInactiveTintColor: "#6B7280",
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: "600",
+        },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          tabBarShowLabel: false,
-          tabBarStyle: { display: "none" },
+          title: "Messages",
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? "chatbubbles" : "chatbubbles-outline"}
+              size={size}
+              color={color}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="finance"
+        options={{
+          title: "Finance",
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? "wallet" : "wallet-outline"}
+              size={size}
+              color={color}
+            />
+          ),
         }}
       />
     </Tabs>

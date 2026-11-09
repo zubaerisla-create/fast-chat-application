@@ -211,6 +211,84 @@ const conversationsService = {
       );
     }
   },
+
+  /**
+   * Get conversation details by ID
+   */
+  getConversationById: async (conversationId: string): Promise<any> => {
+    try {
+      const response = await apiClient.get(`/conversations/${conversationId}`);
+      return response.data.conversation;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || "Failed to fetch conversation");
+    }
+  },
+
+  /**
+   * Create group conversation
+   */
+  createGroup: async (data: {
+    title: string;
+    description?: string;
+    avatar?: string;
+    memberIds?: string[];
+  }): Promise<any> => {
+    try {
+      const response = await apiClient.post("/conversations/groups", data);
+      return response.data.conversation;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || "Failed to create group");
+    }
+  },
+
+  /**
+   * Update group details
+   */
+  updateGroup: async (
+    conversationId: string,
+    data: { title?: string; description?: string; avatar?: string }
+  ): Promise<any> => {
+    try {
+      const response = await apiClient.patch(`/conversations/${conversationId}`, data);
+      return response.data.conversation;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || "Failed to update group");
+    }
+  },
+
+  /**
+   * Add members to group
+   */
+  addMembers: async (conversationId: string, userIds: string[]): Promise<any> => {
+    try {
+      const response = await apiClient.post(`/conversations/${conversationId}/members`, { userIds });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || "Failed to add members");
+    }
+  },
+
+  /**
+   * Remove member from group
+   */
+  removeMember: async (conversationId: string, userId: string): Promise<void> => {
+    try {
+      await apiClient.delete(`/conversations/${conversationId}/members/${userId}`);
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || "Failed to remove member");
+    }
+  },
+
+  /**
+   * Leave group
+   */
+  leaveGroup: async (conversationId: string, userId: string): Promise<void> => {
+    try {
+      await apiClient.delete(`/conversations/${conversationId}/members/${userId}`);
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || "Failed to leave group");
+    }
+  },
 };
 
 export default conversationsService;

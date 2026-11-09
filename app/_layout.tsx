@@ -15,6 +15,7 @@ if (CALLS_ENABLED) {
 import { activeChatIdRef } from '@/app/screens/chat/ChatScreen';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { CallProvider } from '@/context/CallContext';
+import { CurrencyProvider } from '@/context/CurrencyContext';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 
@@ -51,6 +52,9 @@ function RootLayoutNav() {
         <Stack.Screen name="screens/auth/SignupScreen" options={{ headerShown: false }} />
         <Stack.Screen name="screens/chat/ChatScreen" options={{ headerShown: false }} />
         <Stack.Screen name="screens/chat/CallingScreen" options={{ headerShown: false }} />
+        <Stack.Screen name="screens/account/BillingScreen" options={{ headerShown: false }} />
+        <Stack.Screen name="screens/finance/BusinessDetailScreen" options={{ headerShown: false }} />
+        <Stack.Screen name="screens/finance/SimulationDetailScreen" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
       <StatusBar style="auto" />
@@ -62,7 +66,9 @@ export default function RootLayout() {
   return (
     <AuthProvider>
       <CallProvider>
-        <RootLayoutNav />
+        <CurrencyProvider>
+          <RootLayoutNav />
+        </CurrencyProvider>
       </CallProvider>
     </AuthProvider>
   );

@@ -8,6 +8,12 @@ export interface UserProfile extends User {
   isOnline?: boolean;
 }
 
+export interface ExactSearchResult {
+  user: UserProfile;
+  relationship: "none" | "pending_outgoing" | "pending_incoming" | "accepted" | "blocked" | "self";
+  requestId?: string | null;
+}
+
 const usersService = {
   /**
    * Get all users (excluding current user)
@@ -18,6 +24,20 @@ const usersService = {
       return response.data.users || [];
     } catch (error: any) {
       throw new Error(error.response?.data?.message || "Failed to fetch users");
+    }
+  },
+
+  /**
+   * Search users by exact username
+   */
+  searchExactUsername: async (username: string): Promise<ExactSearchResult> => {
+    try {
+      const response = await apiClient.get("/users/search/exact", {
+        params: { username: username.trim() },
+      });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || "User not found");
     }
   },
 
@@ -44,8 +64,42 @@ const usersService = {
       return response.data.user;
     } catch (error: any) {
       throw new Error(
-        error.response?.data?.message || "Failed to fetch user profile",
+        error.response?.data?.message || "Failed to fetch user profile"
       );
+    }
+  },
+
+  /**
+   * Get blocked users list
+   */
+  getBlockedUsers: async (): Promise<any[]> => {
+    try {
+      const response = await apiClient.get("/users/blocked");
+      return response.data.users || [];
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || "Failed to fetch blocked users");
+    }
+  },
+
+  /**
+   * Block a user
+   */
+  blockUser: async (userId: string): Promise<void> => {
+    try {
+      await apiClient.post(`/users/${userId}/block`);
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || "Failed to block user");
+    }
+  },
+
+  /**
+   * Unblock a user
+   */
+  unblockUser: async (userId: string): Promise<void> => {
+    try {
+      await apiClient.post(`/users/${userId}/unblock`);
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || "Failed to unblock user");
     }
   },
 
@@ -54,7 +108,7 @@ const usersService = {
    */
   updateProfile: async (
     username: string,
-    avatarUri?: string,
+    avatarUri?: string
   ): Promise<UserProfile> => {
     try {
       const formData = new FormData();

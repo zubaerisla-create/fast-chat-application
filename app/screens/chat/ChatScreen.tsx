@@ -3,6 +3,7 @@ import { useAuth } from "@/context/AuthContext";
 import { CALLS_ENABLED } from "@/constants/features";
 import { useCall } from "@/context/CallContext";
 import conversationsService, { MessageReaction } from "@/services/conversationsService";
+import friendsService from "@/services/friendsService";
 import socketService from "@/services/socketService";
 import uploadService from "@/services/uploadService";
 import usersService, { UserProfile } from "@/services/usersService";
@@ -465,15 +466,21 @@ export default function ChatScreen() {
   const navigation = useNavigation();
   const { user, onlineUsers } = useAuth();
   const { initiateCall } = useCall();
-  const params = useLocalSearchParams<{ name: string; userId: string; conversationId: string }>();
+  const params = useLocalSearchParams<{ name: string; userId: string; conversationId: string; isGroup?: string }>();
 
-  const chatName = params.name || "User";
+  const [conversationDetails, setConversationDetails] = useState<any>(null);
+  const isGroupChat = params.isGroup === "true" || conversationDetails?.type === "group";
+  const chatName = conversationDetails?.title || params.name || (isGroupChat ? "Group Chat" : "User");
   const targetUserId = params.userId;
   const initialConversationId = params.conversationId;
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageText, setMessageText] = useState("");
   const [contactModalVisible, setContactModalVisible] = useState(false);
+  const [isAddMemberModalVisible, setIsAddMemberModalVisible] = useState(false);
+  const [friendsList, setFriendsList] = useState<any[]>([]);
+  const [selectedFriendIds, setSelectedFriendIds] = useState<string[]>([]);
+  const [isUpdatingGroup, setIsUpdatingGroup] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
@@ -566,6 +573,9 @@ export default function ChatScreen() {
         }
 
         if (currentConvId) {
+          conversationsService.getConversationById(currentConvId).then(conv => {
+            setConversationDetails(conv);
+          }).catch(err => console.log("[ChatScreen] getConversationById error:", err));
           console.log("[ChatScreen] fetching messages for currentConvId:", currentConvId);
           const fetchedMessages = await conversationsService.getMessages(currentConvId);
           console.log("[ChatScreen] fetchedMessages count:", fetchedMessages.length);
@@ -812,23 +822,132 @@ export default function ChatScreen() {
   }, [messages.length, conversationId, user?.id || user?._id]);
 
   useEffect(() => {
-    if (contactModalVisible && targetUserId) fetchContactInfo();
-  }, [contactModalVisible, targetUserId]);
+    if (contactModalVisible) fetchContactInfo();
+  }, [contactModalVisible, targetUserId, conversationId, isGroupChat]);
 
   const fetchContactInfo = async () => {
-    if (!targetUserId) return;
     try {
       setIsLoadingProfile(true);
-      const [profile, media] = await Promise.all([
-        usersService.getUserProfile(targetUserId),
-        conversationId ? conversationsService.getConversationMedia(conversationId) : Promise.resolve([]),
-      ]);
-      setTargetUserProfile(profile);
-      setSharedMedia(media);
+      if (isGroupChat && conversationId) {
+        const [conv, media] = await Promise.all([
+          conversationsService.getConversationById(conversationId),
+          conversationsService.getConversationMedia(conversationId),
+        ]);
+        setConversationDetails(conv);
+        setSharedMedia(media);
+      } else if (targetUserId) {
+        const [profile, media] = await Promise.all([
+          usersService.getUserProfile(targetUserId),
+          conversationId ? conversationsService.getConversationMedia(conversationId) : Promise.resolve([]),
+        ]);
+        setTargetUserProfile(profile);
+        setSharedMedia(media);
+      }
     } catch (error) {
       console.error("Error fetching contact info:", error);
     } finally {
       setIsLoadingProfile(false);
+    }
+  };
+
+  const handleBlockUser = () => {
+    if (!targetUserId) return;
+    Alert.alert(
+      "Block User?",
+      `Are you sure you want to block ${chatName}? You will not be able to send or receive messages from them.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Block",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await usersService.blockUser(targetUserId);
+              setContactModalVisible(false);
+              Alert.alert("Blocked", `${chatName} has been blocked.`);
+              router.back();
+            } catch (err: any) {
+              Alert.alert("Error", err.message || "Failed to block user.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleLeaveGroup = () => {
+    if (!conversationId) return;
+    const myId = (user?.id || (user as any)?._id)?.toString();
+    if (!myId) return;
+
+    Alert.alert("Leave Group?", "Are you sure you want to leave this group chat?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Leave",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await conversationsService.leaveGroup(conversationId, myId);
+            setContactModalVisible(false);
+            Alert.alert("Left Group", "You have left the group.");
+            router.back();
+          } catch (err: any) {
+            Alert.alert("Error", err.message || "Failed to leave group.");
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleRemoveMember = (memberUserId: string, memberName: string) => {
+    if (!conversationId) return;
+    Alert.alert("Remove Member?", `Are you sure you want to remove ${memberName} from this group?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await conversationsService.removeMember(conversationId, memberUserId);
+            const updated = await conversationsService.getConversationById(conversationId);
+            setConversationDetails(updated);
+            Alert.alert("Removed", `${memberName} was removed.`);
+          } catch (err: any) {
+            Alert.alert("Error", err.message || "Failed to remove member.");
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleOpenAddMembersModal = async () => {
+    try {
+      setSelectedFriendIds([]);
+      setIsAddMemberModalVisible(true);
+      const friends = await friendsService.getFriends();
+      const currentMemberIds = new Set(
+        (conversationDetails?.members || []).map((m: any) => (m.userId?._id || m.userId?.id || m.userId)?.toString())
+      );
+      // Only show friends not already in the group
+      setFriendsList(friends.filter((f: any) => !currentMemberIds.has((f.id || f._id)?.toString())));
+    } catch (err) {
+      console.error("Failed to load friends for group add:", err);
+    }
+  };
+
+  const handleAddSelectedMembers = async () => {
+    if (!conversationId || selectedFriendIds.length === 0) return;
+    try {
+      setIsUpdatingGroup(true);
+      await conversationsService.addMembers(conversationId, selectedFriendIds);
+      setIsAddMemberModalVisible(false);
+      const updated = await conversationsService.getConversationById(conversationId);
+      setConversationDetails(updated);
+      Alert.alert("Success", "Members added to group.");
+    } catch (err: any) {
+      Alert.alert("Error", err.message || "Failed to add members.");
+    } finally {
+      setIsUpdatingGroup(false);
     }
   };
 
@@ -885,16 +1004,20 @@ export default function ChatScreen() {
           replyToSenderId: sentMsg.replyToSenderId || m.replyToSenderId,
           replyToSender: sentMsg.replyToSender || m.replyToSender
         } : m));
-      } catch (error) {
+
+        socketService.emit("send_message", {
+          conversationId,
+          message: currentText,
+          replyToMessageId: replyData?.id,
+          replyToText: replyData?.text,
+          replyToSenderId: replyData?.senderId,
+        });
+      } catch (error: any) {
         console.error("Error sending message via API:", error);
+        setMessages(prev => prev.filter(m => m.id !== tempId));
+        Alert.alert("Cannot Send Message", error.message || "Failed to send message");
+        return;
       }
-      socketService.emit("send_message", {
-        conversationId,
-        message: currentText,
-        replyToMessageId: replyData?.id,
-        replyToText: replyData?.text,
-        replyToSenderId: replyData?.senderId,
-      });
     } catch (error) {
       Alert.alert("Error", "Failed to send message");
     } finally {
@@ -1430,34 +1553,44 @@ export default function ChatScreen() {
 
               <TouchableOpacity style={styles.headerUser} onPress={() => setContactModalVisible(true)} activeOpacity={0.8}>
                 <View style={styles.headerAvatarWrapper}>
-                  {targetUserProfile?.avatar ? (
+                  {isGroupChat ? (
+                    conversationDetails?.avatar ? (
+                      <Image source={{ uri: conversationDetails.avatar }} style={styles.headerAvatarImage} />
+                    ) : (
+                      <LinearGradient colors={["#4F46E5", "#06B6D4"]} style={styles.headerAvatarGradient}>
+                        <Ionicons name="people" size={20} color="#fff" />
+                      </LinearGradient>
+                    )
+                  ) : targetUserProfile?.avatar ? (
                     <Image source={{ uri: targetUserProfile.avatar }} style={styles.headerAvatarImage} />
                   ) : (
                     <LinearGradient colors={["#7C5CFF", "#5B7CFF"]} style={styles.headerAvatarGradient}>
                       <Text style={styles.headerAvatarText}>{chatName.charAt(0).toUpperCase()}</Text>
                     </LinearGradient>
                   )}
-                  {isRecipientOnline && <View style={styles.onlineBadge} />}
+                  {!isGroupChat && isRecipientOnline && <View style={styles.onlineBadge} />}
                 </View>
                 <View style={{ marginLeft: 10 }}>
                   <Text style={styles.headerName}>{chatName}</Text>
                   <Text style={[
                     styles.status,
-                    isOpponentTyping ? styles.typingStatus : (isRecipientOnline && styles.onlineStatus)
+                    isOpponentTyping ? styles.typingStatus : (!isGroupChat && isRecipientOnline && styles.onlineStatus)
                   ]}>
                     {isOpponentTyping
                       ? "typing..."
-                      : isRecipientOnline
-                        ? "Online"
-                        : lastSeen
-                          ? `Last seen ${new Date(lastSeen).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-                          : "Offline"}
+                      : isGroupChat
+                        ? `${conversationDetails?.members?.length || conversationDetails?.memberCount || "Multiple"} members`
+                        : isRecipientOnline
+                          ? "Online"
+                          : lastSeen
+                            ? `Last seen ${new Date(lastSeen).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                            : "Offline"}
                   </Text>
                 </View>
               </TouchableOpacity>
 
               <View style={styles.headerActions}>
-                {CALLS_ENABLED && (
+                {CALLS_ENABLED && !isGroupChat && (
                   <>
                     <TouchableOpacity onPress={handleAudioCall} style={styles.iconButton}>
                       <LinearGradient colors={["#111829", "#070B14"]} style={styles.iconButtonGradient}>
@@ -1650,14 +1783,14 @@ export default function ChatScreen() {
           </View>
         </KeyboardAvoidingView>
 
-        {/* ── Contact Info Modal ── */}
+        {/* ── Contact / Group Info Modal ── */}
         <Modal animationType="slide" transparent visible={contactModalVisible} onRequestClose={() => setContactModalVisible(false)}>
           <View style={styles.modalOverlay}>
             <LinearGradient colors={["#0D1322", "#070B14"]} style={styles.modalContent}>
               <View style={styles.modalHandle} />
 
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Contact Info</Text>
+                <Text style={styles.modalTitle}>{isGroupChat ? "Group Info" : "Contact Info"}</Text>
                 <TouchableOpacity onPress={() => setContactModalVisible(false)} style={styles.modalCloseBtn}>
                   <Ionicons name="close" size={22} color="#8D97AD" />
                 </TouchableOpacity>
@@ -1666,50 +1799,128 @@ export default function ChatScreen() {
               {isLoadingProfile ? (
                 <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
                   <ActivityIndicator size="large" color="#5B7CFF" />
-                  <Text style={{ color: "#8D97AD", marginTop: 10 }}>Loading profile...</Text>
+                  <Text style={{ color: "#8D97AD", marginTop: 10 }}>Loading info...</Text>
                 </View>
               ) : (
-                <>
-                  <View style={styles.profileContainer}>
-                    <View style={styles.profileAvatarWrapper}>
-                      {targetUserProfile?.avatar ? (
-                        <Image source={{ uri: targetUserProfile.avatar }} style={styles.profileAvatarImage} />
-                      ) : (
-                        <LinearGradient colors={["#7C5CFF", "#5B7CFF"]} style={styles.profileAvatarGradient}>
-                          <Text style={styles.profileAvatarText}>{chatName.charAt(0).toUpperCase()}</Text>
-                        </LinearGradient>
+                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 25 }}>
+                  {isGroupChat ? (
+                    /* ── Group Details ── */
+                    <View style={styles.profileContainer}>
+                      <View style={styles.profileAvatarWrapper}>
+                        {conversationDetails?.avatar ? (
+                          <Image source={{ uri: conversationDetails.avatar }} style={styles.profileAvatarImage} />
+                        ) : (
+                          <LinearGradient colors={["#4F46E5", "#06B6D4"]} style={styles.profileAvatarGradient}>
+                            <Ionicons name="people" size={32} color="#fff" />
+                          </LinearGradient>
+                        )}
+                      </View>
+                      <Text style={styles.contactName}>{conversationDetails?.title || chatName}</Text>
+                      {conversationDetails?.description ? (
+                        <Text style={styles.contactEmail}>{conversationDetails.description}</Text>
+                      ) : null}
+
+                      {/* Group Members Section */}
+                      <View style={{ width: "100%", marginTop: 18 }}>
+                        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                          <Text style={styles.sectionTitle}>
+                            MEMBERS ({conversationDetails?.members?.length || 0})
+                          </Text>
+                          {(conversationDetails?.myRole === "owner" || conversationDetails?.myRole === "admin") && (
+                            <TouchableOpacity onPress={handleOpenAddMembersModal} style={styles.addMemberChip}>
+                              <Ionicons name="person-add-outline" size={14} color="#8B7CFF" />
+                              <Text style={styles.addMemberChipText}>Add Members</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+
+                        {(conversationDetails?.members || []).map((m: any) => {
+                          const mUser = m.userId || {};
+                          const mUserId = (mUser._id || mUser.id || mUser).toString();
+                          const mName = mUser.username || "Member";
+                          const mRole = m.role || "member";
+                          const isSelf = mUserId === (user?.id || (user as any)?._id)?.toString();
+                          const canRemove = (conversationDetails?.myRole === "owner" || conversationDetails?.myRole === "admin") && !isSelf && mRole !== "owner";
+
+                          return (
+                            <View key={mUserId} style={styles.memberRow}>
+                              <View style={styles.memberAvatarWrapper}>
+                                {mUser.avatar ? (
+                                  <Image source={{ uri: mUser.avatar }} style={styles.memberAvatar} />
+                                ) : (
+                                  <LinearGradient colors={["#7C5CFF", "#5B7CFF"]} style={styles.memberAvatarGradient}>
+                                    <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>
+                                      {mName.charAt(0).toUpperCase()}
+                                    </Text>
+                                  </LinearGradient>
+                                )}
+                              </View>
+                              <View style={{ flex: 1, marginLeft: 10 }}>
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                                  <Text style={styles.memberName}>{mName}</Text>
+                                  {isSelf && <Text style={styles.memberSelfTag}>(You)</Text>}
+                                </View>
+                                <Text style={styles.memberEmail}>{mUser.email || ""}</Text>
+                              </View>
+                              <View style={[styles.roleBadge, mRole === "owner" ? styles.roleBadgeOwner : mRole === "admin" ? styles.roleBadgeAdmin : styles.roleBadgeMember]}>
+                                <Text style={styles.roleBadgeText}>{mRole}</Text>
+                              </View>
+                              {canRemove && (
+                                <TouchableOpacity onPress={() => handleRemoveMember(mUserId, mName)} style={{ marginLeft: 8 }} hitSlop={6}>
+                                  <Ionicons name="remove-circle-outline" size={20} color="#EF4444" />
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  ) : (
+                    /* ── Direct Contact Details ── */
+                    <View style={styles.profileContainer}>
+                      <View style={styles.profileAvatarWrapper}>
+                        {targetUserProfile?.avatar ? (
+                          <Image source={{ uri: targetUserProfile.avatar }} style={styles.profileAvatarImage} />
+                        ) : (
+                          <LinearGradient colors={["#7C5CFF", "#5B7CFF"]} style={styles.profileAvatarGradient}>
+                            <Text style={styles.profileAvatarText}>{chatName.charAt(0).toUpperCase()}</Text>
+                          </LinearGradient>
+                        )}
+                        {isRecipientOnline && <View style={styles.profileOnlineBadge} />}
+                      </View>
+                      <Text style={styles.contactName}>{targetUserProfile?.username || chatName}</Text>
+                      <Text style={styles.contactEmail}>{targetUserProfile?.email || "No email available"}</Text>
+                      {CALLS_ENABLED && (
+                        <View style={styles.profileActions}>
+                          <TouchableOpacity style={styles.profileActionBtn} onPress={handleAudioCall}>
+                            <LinearGradient colors={["#111829", "#070B14"]} style={styles.profileActionGradient}>
+                              <Ionicons name="call-outline" size={22} color="#8B7CFF" />
+                            </LinearGradient>
+                            <Text style={styles.profileActionLabel}>Audio</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={styles.profileActionBtn} onPress={handleVideoCall}>
+                            <LinearGradient colors={["#111829", "#070B14"]} style={styles.profileActionGradient}>
+                              <Ionicons name="videocam-outline" size={22} color="#8B7CFF" />
+                            </LinearGradient>
+                            <Text style={styles.profileActionLabel}>Video</Text>
+                          </TouchableOpacity>
+                        </View>
                       )}
-                      {isRecipientOnline && <View style={styles.profileOnlineBadge} />}
                     </View>
-                    <Text style={styles.contactName}>{targetUserProfile?.username || chatName}</Text>
-                    <Text style={styles.contactEmail}>{targetUserProfile?.email || "No email available"}</Text>
-                    {CALLS_ENABLED && (
-                    <View style={styles.profileActions}>
-                      <TouchableOpacity style={styles.profileActionBtn} onPress={handleAudioCall}>
-                        <LinearGradient colors={["#111829", "#070B14"]} style={styles.profileActionGradient}>
-                          <Ionicons name="call-outline" size={22} color="#8B7CFF" />
-                        </LinearGradient>
-                        <Text style={styles.profileActionLabel}>Audio</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.profileActionBtn} onPress={handleVideoCall}>
-                        <LinearGradient colors={["#111829", "#070B14"]} style={styles.profileActionGradient}>
-                          <Ionicons name="videocam-outline" size={22} color="#8B7CFF" />
-                        </LinearGradient>
-                        <Text style={styles.profileActionLabel}>Video</Text>
-                      </TouchableOpacity>
+                  )}
+
+                  {!isGroupChat && (
+                    <View style={styles.infoCard}>
+                      <Text style={styles.infoLabel}>MEMBER SINCE</Text>
+                      <Text style={styles.infoValue}>
+                        {targetUserProfile?.createdAt
+                          ? new Date(targetUserProfile.createdAt).toLocaleDateString("en-US", { month: "long", year: "numeric" })
+                          : "Recently joined"}
+                      </Text>
                     </View>
-                    )}
-                  </View>
+                  )}
 
-                  <View style={styles.infoCard}>
-                    <Text style={styles.infoLabel}>MEMBER SINCE</Text>
-                    <Text style={styles.infoValue}>
-                      {targetUserProfile?.createdAt
-                        ? new Date(targetUserProfile.createdAt).toLocaleDateString("en-US", { month: "long", year: "numeric" })
-                        : "Recently joined"}
-                    </Text>
-                  </View>
-
+                  {/* Shared Media Header & Tabs */}
                   <View style={styles.sharedContentHeader}>
                     <Text style={styles.sectionTitle}>SHARED CONTENT</Text>
                     <View style={styles.tabButtons}>
@@ -1723,57 +1934,150 @@ export default function ChatScreen() {
                   </View>
 
                   {activeTab === "IMAGES" ? (
-                    <View style={{ flex: 1 }}>
+                    <View style={{ minHeight: 120 }}>
                       {sharedMedia.filter(m => m.fileType === "image").length > 0 ? (
                         <FlatList
                           key="images-grid"
                           data={sharedMedia.filter(m => m.fileType === "image")}
                           numColumns={3}
+                          scrollEnabled={false}
                           keyExtractor={item => item._id}
                           renderItem={({ item }) => (
                             <TouchableOpacity onPress={() => setSelectedPreviewImage(item.fileUrl || null)} style={{ margin: 3 }}>
                               <Image source={{ uri: item.fileUrl }} style={{ width: (width - 60) / 3, height: (width - 60) / 3, borderRadius: 10 }} />
                             </TouchableOpacity>
                           )}
-                          contentContainerStyle={{ paddingBottom: 20 }}
                         />
                       ) : (
                         <View style={styles.noContent}>
-                          <Ionicons name="image-outline" size={48} color="#1E2940" />
+                          <Ionicons name="image-outline" size={40} color="#1E2940" />
                           <Text style={styles.noContentText}>No shared images</Text>
                         </View>
                       )}
                     </View>
                   ) : (
-                    <View style={{ flex: 1 }}>
+                    <View style={{ minHeight: 120 }}>
                       {sharedMedia.filter(m => m.fileType === "file").length > 0 ? (
-                        <FlatList
-                          key="files-list"
-                          data={sharedMedia.filter(m => m.fileType === "file")}
-                          keyExtractor={item => item._id}
-                          renderItem={({ item }) => (
-                            <View style={styles.fileItem}>
-                              <View style={styles.fileIcon}>
-                                <Ionicons name="document-text-outline" size={22} color="#7C5CFF" />
-                              </View>
-                              <View style={{ flex: 1 }}>
-                                <Text style={{ color: "white", fontSize: 14 }} numberOfLines={1}>{item.fileName || "Unnamed File"}</Text>
-                                <Text style={{ color: "#5B6580", fontSize: 12 }}>{new Date(item.createdAt).toLocaleDateString()}</Text>
-                              </View>
+                        sharedMedia.filter(m => m.fileType === "file").map(item => (
+                          <View key={item._id} style={styles.fileItem}>
+                            <View style={styles.fileIcon}>
+                              <Ionicons name="document-text-outline" size={22} color="#7C5CFF" />
                             </View>
-                          )}
-                          contentContainerStyle={{ paddingBottom: 20 }}
-                        />
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ color: "white", fontSize: 14 }} numberOfLines={1}>{item.fileName || "Unnamed File"}</Text>
+                              <Text style={{ color: "#5B6580", fontSize: 12 }}>{new Date(item.createdAt).toLocaleDateString()}</Text>
+                            </View>
+                          </View>
+                        ))
                       ) : (
                         <View style={styles.noContent}>
-                          <Ionicons name="folder-open-outline" size={48} color="#1E2940" />
+                          <Ionicons name="folder-open-outline" size={40} color="#1E2940" />
                           <Text style={styles.noContentText}>No shared files</Text>
                         </View>
                       )}
                     </View>
                   )}
-                </>
+
+                  {/* Danger Zone: Leave Group or Block User */}
+                  <View style={{ marginTop: 24 }}>
+                    {isGroupChat ? (
+                      <TouchableOpacity onPress={handleLeaveGroup} style={styles.dangerButton}>
+                        <Ionicons name="exit-outline" size={18} color="#EF4444" />
+                        <Text style={styles.dangerButtonText}>Leave Group</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity onPress={handleBlockUser} style={styles.dangerButton}>
+                        <Ionicons name="ban-outline" size={18} color="#EF4444" />
+                        <Text style={styles.dangerButtonText}>Block User</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </ScrollView>
               )}
+            </LinearGradient>
+          </View>
+        </Modal>
+
+        {/* ── Add Members to Group Modal ── */}
+        <Modal
+          animationType="slide"
+          transparent
+          visible={isAddMemberModalVisible}
+          onRequestClose={() => setIsAddMemberModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <LinearGradient colors={["#0D1322", "#070B14"]} style={[styles.modalContent, { maxHeight: "70%" }]}>
+              <View style={styles.modalHandle} />
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Add Members</Text>
+                <TouchableOpacity onPress={() => setIsAddMemberModalVisible(false)} style={styles.modalCloseBtn}>
+                  <Ionicons name="close" size={22} color="#8D97AD" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView showsVerticalScrollIndicator={false} style={{ marginTop: 12 }}>
+                {friendsList.length === 0 ? (
+                  <View style={{ paddingVertical: 20, alignItems: "center" }}>
+                    <Text style={{ color: "#8D97AD", fontSize: 13, textAlign: "center" }}>
+                      No new friends available to add.
+                    </Text>
+                  </View>
+                ) : (
+                  friendsList.map((f: any) => {
+                    const fId = (f.id || f._id).toString();
+                    const isSelected = selectedFriendIds.includes(fId);
+                    return (
+                      <TouchableOpacity
+                        key={fId}
+                        onPress={() => {
+                          setSelectedFriendIds(prev =>
+                            isSelected ? prev.filter(id => id !== fId) : [...prev, fId]
+                          );
+                        }}
+                        style={[styles.memberRow, isSelected && { borderColor: "#7C5CFF", borderWidth: 1 }]}
+                      >
+                        <View style={styles.memberAvatarWrapper}>
+                          {f.avatar ? (
+                            <Image source={{ uri: f.avatar }} style={styles.memberAvatar} />
+                          ) : (
+                            <LinearGradient colors={["#7C5CFF", "#5B7CFF"]} style={styles.memberAvatarGradient}>
+                              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>
+                                {(f.username || "?").charAt(0).toUpperCase()}
+                              </Text>
+                            </LinearGradient>
+                          )}
+                        </View>
+                        <View style={{ flex: 1, marginLeft: 10 }}>
+                          <Text style={styles.memberName}>{f.username}</Text>
+                          <Text style={styles.memberEmail}>{f.email}</Text>
+                        </View>
+                        <Ionicons
+                          name={isSelected ? "checkbox" : "square-outline"}
+                          size={22}
+                          color={isSelected ? "#7C5CFF" : "#8D97AD"}
+                        />
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
+
+                <TouchableOpacity
+                  onPress={handleAddSelectedMembers}
+                  disabled={isUpdatingGroup || selectedFriendIds.length === 0}
+                  style={[
+                    styles.primaryModalButton,
+                    (isUpdatingGroup || selectedFriendIds.length === 0) && { opacity: 0.5 },
+                  ]}
+                >
+                  {isUpdatingGroup ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.primaryModalButtonText}>
+                      Add Selected ({selectedFriendIds.length})
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </ScrollView>
             </LinearGradient>
           </View>
         </Modal>
@@ -2442,5 +2746,111 @@ const styles = StyleSheet.create({
   },
   reactionDetailEmoji: {
     fontSize: 24,
+  },
+  /* ── Group & Danger Action Styles ── */
+  addMemberChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    backgroundColor: "rgba(139, 124, 255, 0.15)",
+  },
+  addMemberChipText: {
+    color: "#8B7CFF",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  memberRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    borderRadius: 12,
+    marginBottom: 6,
+    backgroundColor: "rgba(255, 255, 255, 0.03)",
+  },
+  memberAvatarWrapper: {
+    width: 36,
+    height: 36,
+  },
+  memberAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  memberAvatarGradient: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  memberName: {
+    color: "#F1F5F9",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  memberEmail: {
+    color: "#5B6580",
+    fontSize: 11,
+    marginTop: 1,
+  },
+  memberSelfTag: {
+    color: "#8B7CFF",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  roleBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  roleBadgeOwner: {
+    backgroundColor: "rgba(245, 158, 11, 0.2)",
+  },
+  roleBadgeAdmin: {
+    backgroundColor: "rgba(59, 130, 246, 0.2)",
+  },
+  roleBadgeMember: {
+    backgroundColor: "rgba(100, 116, 139, 0.2)",
+  },
+  roleBadgeText: {
+    color: "#E2E8F0",
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+  },
+  dangerButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "rgba(239, 68, 68, 0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.3)",
+    paddingVertical: 14,
+    borderRadius: 14,
+    marginTop: 10,
+  },
+  dangerButtonText: {
+    color: "#EF4444",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  primaryModalButton: {
+    backgroundColor: "#7C5CFF",
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 16,
+    marginBottom: 20,
+  },
+  primaryModalButtonText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "700",
   },
 });
