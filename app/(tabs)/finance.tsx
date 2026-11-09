@@ -19,6 +19,8 @@ import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { palette, radius } from "@/constants/design";
 import financeService, { BusinessItem, FinanceDashboardData } from "@/services/financeService";
+import revenueCatService, { SubscriptionStatus } from "@/services/revenueCatService";
+import FinancePaywallModal from "@/components/finance/FinancePaywallModal";
 import { useCurrency } from "@/context/CurrencyContext";
 
 const { width } = Dimensions.get("window");
@@ -33,6 +35,8 @@ export default function FinanceScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [dashboard, setDashboard] = useState<FinanceDashboardData | null>(null);
   const [currencyModal, setCurrencyModal] = useState(false);
+  const [subStatus, setSubStatus] = useState<SubscriptionStatus | null>(null);
+  const [paywallModal, setPaywallModal] = useState(false);
 
 
   // Ledger / Transaction List
@@ -115,21 +119,33 @@ export default function FinanceScreen() {
     }
   };
 
+  const loadSubscription = async () => {
+    try {
+      const status = await revenueCatService.getStatus();
+      setSubStatus(status);
+    } catch (err: any) {
+      console.warn("Error fetching subscription status:", err.message);
+    }
+  };
+
   useEffect(() => {
     loadDashboard();
     loadTransactions("ALL", "");
+    loadSubscription();
   }, []);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     loadDashboard();
     loadTransactions(txFilter, txSearch);
+    loadSubscription();
   }, [txFilter, txSearch]);
 
   useFocusEffect(
     useCallback(() => {
       loadDashboard();
       loadTransactions(txFilter, txSearch);
+      loadSubscription();
     }, [txFilter, txSearch])
   );
 
@@ -141,6 +157,10 @@ export default function FinanceScreen() {
   };
 
   const handleRunSimulation = async () => {
+    if (subStatus && !subStatus.hasAccess) {
+      setPaywallModal(true);
+      return;
+    }
     const amount = Number(simAmount);
     if (!amount || amount <= 0) {
       Alert.alert("Invalid Input", "Please enter a valid purchase or investment amount.");
@@ -185,6 +205,10 @@ export default function FinanceScreen() {
   };
 
   const handleCreateBusiness = async () => {
+    if (subStatus && !subStatus.hasAccess) {
+      setPaywallModal(true);
+      return;
+    }
     if (!bizName.trim()) {
       Alert.alert("Validation", "Please enter business name.");
       return;
@@ -226,6 +250,10 @@ export default function FinanceScreen() {
   };
 
   const handleCreateTransaction = async () => {
+    if (subStatus && !subStatus.hasAccess) {
+      setPaywallModal(true);
+      return;
+    }
     const amt = Number(txAmount);
     if (!txName.trim() || !amt || amt <= 0) {
       Alert.alert("Validation", "Please enter a valid title and amount.");
@@ -260,6 +288,10 @@ export default function FinanceScreen() {
   };
 
   const handleCreateGoal = async () => {
+    if (subStatus && !subStatus.hasAccess) {
+      setPaywallModal(true);
+      return;
+    }
     if (!goalTitle.trim()) {
       Alert.alert("Validation", "Please enter goal title.");
       return;
@@ -308,20 +340,64 @@ export default function FinanceScreen() {
 
       {/* Top Header */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.subBrand}>MAYRAMAO INTEGRATED</Text>
-          <Text style={styles.brandTitle}>Fast Finance Hub</Text>
+        <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
+          <Text style={styles.subBrand} numberOfLines={1}>FAST CHAT INTEGRATED</Text>
+          <Text style={styles.brandTitle} numberOfLines={1}>Finance Hub</Text>
         </View>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          {/* Subscription / Trial Badge */}
+          {subStatus?.isLifetime ? (
+            <Pressable onPress={() => setPaywallModal(true)} style={[styles.subBadgeBtn, { backgroundColor: "rgba(244, 63, 94, 0.16)", borderColor: "#F43F5E" }]}>
+              <Ionicons name="diamond" size={11} color="#FB7185" />
+              <Text style={[styles.subBadgeBtnText, { color: "#FB7185" }]}>Lifetime</Text>
+            </Pressable>
+          ) : subStatus?.isActive ? (
+            <Pressable onPress={() => setPaywallModal(true)} style={[styles.subBadgeBtn, { backgroundColor: "rgba(16, 185, 129, 0.16)", borderColor: "#10B981" }]}>
+              <Ionicons name="checkmark-circle" size={11} color="#10B981" />
+              <Text style={[styles.subBadgeBtnText, { color: "#10B981" }]}>Pro</Text>
+            </Pressable>
+          ) : subStatus?.isTrialing ? (
+            <Pressable onPress={() => setPaywallModal(true)} style={[styles.subBadgeBtn, { backgroundColor: "rgba(244, 63, 94, 0.16)", borderColor: "#F43F5E" }]}>
+              <Ionicons name="flash" size={11} color="#FB7185" />
+              <Text style={[styles.subBadgeBtnText, { color: "#FB7185" }]}>{subStatus.trialDaysLeft}d Trial</Text>
+            </Pressable>
+          ) : (
+            <Pressable onPress={() => setPaywallModal(true)} style={[styles.subBadgeBtn, { backgroundColor: "rgba(244, 63, 94, 0.16)", borderColor: "#F43F5E" }]}>
+              <Ionicons name="lock-closed" size={11} color="#FB7185" />
+              <Text style={[styles.subBadgeBtnText, { color: "#FB7185" }]}>Unlock Pro</Text>
+            </Pressable>
+          )}
+
           <Pressable onPress={() => setCurrencyModal(true)} style={styles.currencyBadgeBtn}>
             <Text style={styles.currencyBadgeBtnText}>{currencySymbol} {currency}</Text>
-            <Ionicons name="chevron-down" size={12} color="#00D4FF" />
+            <Ionicons name="chevron-down" size={12} color="#FB7185" />
           </Pressable>
           <Pressable onPress={loadDashboard} style={styles.refreshBtn}>
-            <Ionicons name="refresh" size={20} color="#00D4FF" />
+            <Ionicons name="refresh" size={18} color="#FB7185" />
           </Pressable>
         </View>
       </View>
+
+      {/* Trial / Paywall Notice Top Strip */}
+      {subStatus?.isTrialing && (
+        <Pressable onPress={() => setPaywallModal(true)} style={styles.trialTopBar}>
+          <Ionicons name="sparkles" size={14} color="#F59E0B" />
+          <Text style={styles.trialTopBarText}>
+            7-Day Free Trial: <Text style={{ fontWeight: "800", color: "#FDE68A" }}>{subStatus.trialDaysLeft} days left</Text>. Tap to view Pro plans.
+          </Text>
+          <Ionicons name="chevron-forward" size={13} color="#F59E0B" />
+        </Pressable>
+      )}
+
+      {subStatus && !subStatus.hasAccess && (
+        <Pressable onPress={() => setPaywallModal(true)} style={styles.expiredTopBar}>
+          <Ionicons name="alert-circle" size={15} color="#EF4444" />
+          <Text style={styles.expiredTopBarText}>
+            Free trial ended. Tap to subscribe ($10/mo, $50/yr, $100 lifetime).
+          </Text>
+          <Ionicons name="chevron-forward" size={13} color="#EF4444" />
+        </Pressable>
+      )}
 
       {/* Navigation Sub-Tabs */}
       <View style={styles.tabBar}>
@@ -1173,40 +1249,49 @@ export default function FinanceScreen() {
           </View>
         </View>
       </Modal>
+      {/* RevenueCat Finance Paywall Modal */}
+      <FinancePaywallModal
+        visible={paywallModal}
+        onClose={() => setPaywallModal(false)}
+        onPurchased={() => {
+          loadSubscription();
+          loadDashboard();
+        }}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#070B14" },
-  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#070B14" },
+  container: { flex: 1, backgroundColor: "#130913" },
+  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#130913" },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingTop: 10,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.08)",
+    borderBottomColor: "rgba(244, 63, 94, 0.12)",
   },
-  subBrand: { color: "#00D4FF", fontSize: 11, fontWeight: "800", letterSpacing: 1 },
-  brandTitle: { color: "#FFFFFF", fontSize: 22, fontWeight: "900", marginTop: 2 },
+  subBrand: { color: "#F43F5E", fontSize: 10, fontWeight: "800", letterSpacing: 1 },
+  brandTitle: { color: "#FFFFFF", fontSize: 20, fontWeight: "900", marginTop: 2 },
   refreshBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(0, 212, 255, 0.1)",
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(244, 63, 94, 0.12)",
     borderWidth: 1,
-    borderColor: "rgba(0, 212, 255, 0.2)",
+    borderColor: "rgba(244, 63, 94, 0.25)",
     alignItems: "center",
     justifyContent: "center",
   },
   tabBar: {
     paddingVertical: 10,
-    backgroundColor: "rgba(15, 23, 42, 0.6)",
+    backgroundColor: "rgba(29, 14, 28, 0.7)",
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.05)",
+    borderBottomColor: "rgba(244, 63, 94, 0.1)",
   },
   tabScroll: { paddingHorizontal: 16, gap: 8 },
   tabButton: {
@@ -1218,23 +1303,23 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: "rgba(255, 255, 255, 0.04)",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.06)",
+    borderColor: "rgba(244, 63, 94, 0.15)",
   },
   tabButtonActive: {
-    backgroundColor: "rgba(0, 212, 255, 0.16)",
-    borderColor: "#00D4FF",
+    backgroundColor: "rgba(244, 63, 94, 0.18)",
+    borderColor: "#F43F5E",
   },
   tabText: { color: palette.textMuted, fontSize: 12, fontWeight: "600" },
-  tabTextActive: { color: "#00D4FF", fontWeight: "800" },
+  tabTextActive: { color: "#FB7185", fontWeight: "800" },
   scrollContent: { padding: 16, paddingBottom: 60 },
   sectionWrap: { gap: 14 },
 
-  // Mayramao Signature Hero Card
+  // Signature Hero Card
   mayramaoHeroCard: {
     borderRadius: 26,
-    backgroundColor: "#0F172A",
+    backgroundColor: "#1C0E1B",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.12)",
+    borderColor: "rgba(244, 63, 94, 0.25)",
     padding: 22,
     position: "relative",
     overflow: "hidden",
@@ -1251,7 +1336,7 @@ const styles = StyleSheet.create({
     width: 140,
     height: 140,
     borderRadius: 70,
-    backgroundColor: "rgba(0, 212, 255, 0.14)",
+    backgroundColor: "rgba(244, 63, 94, 0.16)",
   },
   heroCircle2: {
     position: "absolute",
@@ -1260,7 +1345,7 @@ const styles = StyleSheet.create({
     width: 130,
     height: 130,
     borderRadius: 65,
-    backgroundColor: "rgba(16, 185, 129, 0.16)",
+    backgroundColor: "rgba(236, 72, 153, 0.14)",
   },
   heroMain: { marginBottom: 16 },
   heroLabel: { color: "rgba(255, 255, 255, 0.7)", fontSize: 11, fontWeight: "700", letterSpacing: 0.5 },
@@ -1282,11 +1367,11 @@ const styles = StyleSheet.create({
   grid2: { flexDirection: "row", gap: 10 },
   decisionCard: {
     flex: 1,
-    backgroundColor: "#0F172A",
+    backgroundColor: "#1C0E1B",
     borderRadius: 20,
     padding: 16,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
+    borderColor: "rgba(244, 63, 94, 0.15)",
   },
   decisionIconWrapSafe: {
     alignSelf: "flex-start",
@@ -1312,10 +1397,10 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 14,
     borderRadius: 18,
-    backgroundColor: "#635BFF",
-    shadowColor: "#635BFF",
+    backgroundColor: "#F43F5E",
+    shadowColor: "#F43F5E",
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.35,
     shadowRadius: 10,
     elevation: 4,
   },
@@ -1327,9 +1412,9 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 14,
     borderRadius: 18,
-    backgroundColor: "rgba(0, 212, 255, 0.08)",
+    backgroundColor: "rgba(244, 63, 94, 0.1)",
     borderWidth: 1,
-    borderColor: "rgba(0, 212, 255, 0.25)",
+    borderColor: "rgba(244, 63, 94, 0.25)",
   },
   actionBtnText: { color: "#FFFFFF", fontSize: 13, fontWeight: "800" },
 
@@ -1337,15 +1422,15 @@ const styles = StyleSheet.create({
   cardFull: {
     padding: 18,
     borderRadius: 22,
-    backgroundColor: "#0F172A",
+    backgroundColor: "#1C0E1B",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
+    borderColor: "rgba(244, 63, 94, 0.15)",
     gap: 10,
   },
   boxTitle: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
   boxSub: { color: palette.textMuted, fontSize: 12, marginTop: -4 },
   rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  linkText: { color: "#00D4FF", fontSize: 13, fontWeight: "700" },
+  linkText: { color: "#FB7185", fontSize: 13, fontWeight: "700" },
   emptyNote: { color: palette.textFaint, fontSize: 12, textAlign: "center", paddingVertical: 10 },
 
   // Simulation Item Card
@@ -1374,9 +1459,9 @@ const styles = StyleSheet.create({
   bizCard: {
     padding: 16,
     borderRadius: 22,
-    backgroundColor: "#0F172A",
+    backgroundColor: "#1C0E1B",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
+    borderColor: "rgba(244, 63, 94, 0.15)",
     gap: 10,
   },
   bizName: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
@@ -1417,8 +1502,8 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     marginTop: 4,
   },
-  bizBalanceLabel: { color: "#00D4FF", fontSize: 13, fontWeight: "700" },
-  bizViewText: { color: "#00D4FF", fontSize: 12, fontWeight: "700" },
+  bizBalanceLabel: { color: "#FB7185", fontSize: 13, fontWeight: "700" },
+  bizViewText: { color: "#FB7185", fontSize: 12, fontWeight: "700" },
 
   addPillBtn: {
     flexDirection: "row",
@@ -1427,7 +1512,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: radius.pill,
-    backgroundColor: "#635BFF",
+    backgroundColor: "#F43F5E",
   },
   addBtnText: { color: "#fff", fontSize: 12, fontWeight: "700" },
 
@@ -1450,18 +1535,18 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: "rgba(255, 255, 255, 0.04)",
   },
-  filterChipActive: { backgroundColor: "rgba(0, 212, 255, 0.18)", borderWidth: 1, borderColor: "#00D4FF" },
+  filterChipActive: { backgroundColor: "rgba(244, 63, 94, 0.18)", borderWidth: 1, borderColor: "#F43F5E" },
   filterChipText: { color: palette.textMuted, fontSize: 11, fontWeight: "700" },
-  filterChipTextActive: { color: "#00D4FF" },
+  filterChipTextActive: { color: "#FB7185" },
 
   // Simulator specifics
   inputLabel: { color: palette.textMuted, fontSize: 11, fontWeight: "700", marginTop: 6 },
   input: {
     height: 48,
     borderRadius: 14,
-    backgroundColor: "#070B14",
+    backgroundColor: "#120711",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
+    borderColor: "rgba(244, 63, 94, 0.18)",
     paddingHorizontal: 14,
     color: "#FFFFFF",
     fontSize: 14,
@@ -1472,16 +1557,16 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 10,
     borderRadius: 12,
-    backgroundColor: "#070B14",
+    backgroundColor: "#120711",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
+    borderColor: "rgba(244, 63, 94, 0.18)",
   },
-  toggleBtnActiveFull: { backgroundColor: "rgba(0, 212, 255, 0.15)", borderColor: "#00D4FF" },
-  toggleBtnActiveLoan: { backgroundColor: "rgba(99, 91, 255, 0.15)", borderColor: "#635BFF" },
+  toggleBtnActiveFull: { backgroundColor: "rgba(244, 63, 94, 0.18)", borderColor: "#F43F5E" },
+  toggleBtnActiveLoan: { backgroundColor: "rgba(236, 72, 153, 0.18)", borderColor: "#EC4899" },
   toggleText: { color: palette.textMuted, fontSize: 12, fontWeight: "600" },
-  toggleTextActiveFull: { color: "#00D4FF", fontWeight: "800" },
-  toggleTextActiveLoan: { color: "#A855F7", fontWeight: "800" },
+  toggleTextActiveFull: { color: "#FB7185", fontWeight: "800" },
+  toggleTextActiveLoan: { color: "#F472B6", fontWeight: "800" },
 
   riskBanner: {
     flexDirection: "row",
@@ -1515,7 +1600,7 @@ const styles = StyleSheet.create({
   },
   goalRow: { marginVertical: 4 },
   goalTitle: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
-  goalPct: { color: "#00D4FF", fontSize: 12, fontWeight: "800" },
+  goalPct: { color: "#FB7185", fontSize: 12, fontWeight: "800" },
   progressBar: {
     height: 6,
     borderRadius: 3,
@@ -1523,7 +1608,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     marginVertical: 4,
   },
-  progressFill: { height: "100%", backgroundColor: "#00D4FF", borderRadius: 3 },
+  progressFill: { height: "100%", backgroundColor: "#F43F5E", borderRadius: 3 },
   goalSub: { color: palette.textFaint, fontSize: 11 },
 
   // Modals
@@ -1535,9 +1620,9 @@ const styles = StyleSheet.create({
   },
   modalBox: {
     borderRadius: 24,
-    backgroundColor: "#0F172A",
+    backgroundColor: "#1C0E1B",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.12)",
+    borderColor: "rgba(244, 63, 94, 0.2)",
     padding: 20,
     gap: 8,
   },
@@ -1546,7 +1631,7 @@ const styles = StyleSheet.create({
   cancelBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 12 },
   cancelBtnText: { color: palette.textMuted, fontSize: 13, fontWeight: "700" },
   saveBtn: {
-    backgroundColor: "#635BFF",
+    backgroundColor: "#F43F5E",
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 14,
@@ -1557,16 +1642,16 @@ const styles = StyleSheet.create({
   currencyBadgeBtn: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(0, 212, 255, 0.12)",
+    backgroundColor: "rgba(244, 63, 94, 0.12)",
     borderWidth: 1,
-    borderColor: "rgba(0, 212, 255, 0.3)",
+    borderColor: "rgba(244, 63, 94, 0.3)",
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: radius.pill,
     gap: 4,
   },
   currencyBadgeBtnText: {
-    color: "#00D4FF",
+    color: "#FB7185",
     fontSize: 12,
     fontWeight: "800",
   },
@@ -1580,8 +1665,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255, 255, 255, 0.02)",
   },
   currencyRowActive: {
-    borderColor: "#00D4FF",
-    backgroundColor: "rgba(0, 212, 255, 0.1)",
+    borderColor: "#F43F5E",
+    backgroundColor: "rgba(244, 63, 94, 0.12)",
   },
   currencyIconWrap: {
     width: 38,
@@ -1592,7 +1677,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   currencyIconWrapActive: {
-    backgroundColor: "rgba(0, 212, 255, 0.2)",
+    backgroundColor: "rgba(244, 63, 94, 0.2)",
   },
   currencyIconText: {
     color: "#FFFFFF",
@@ -1600,7 +1685,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   currencyIconTextActive: {
-    color: "#00D4FF",
+    color: "#FB7185",
   },
   currencyCodeText: {
     color: "#FFFFFF",
@@ -1611,5 +1696,51 @@ const styles = StyleSheet.create({
     color: palette.textFaint,
     fontSize: 11,
     marginTop: 2,
+  },
+  // Subscription Badges & Banners
+  subBadgeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: radius.pill,
+    gap: 4,
+  },
+  subBadgeBtnText: {
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  trialTopBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(245, 158, 11, 0.12)",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(245, 158, 11, 0.25)",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  trialTopBarText: {
+    flex: 1,
+    color: "#FBBF24",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  expiredTopBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(239, 68, 68, 0.14)",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(239, 68, 68, 0.3)",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  expiredTopBarText: {
+    flex: 1,
+    color: "#F87171",
+    fontSize: 11,
+    fontWeight: "700",
   },
 });

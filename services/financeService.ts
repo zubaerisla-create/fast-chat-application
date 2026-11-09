@@ -186,6 +186,22 @@ export const financeService = {
     const res = await apiClient.delete(`/finance/goals/${id}`);
     return res.data;
   },
+
+  getSubscriptionStatus: async () => {
+    const res = await apiClient.get("/finance/subscription");
+    return res.data.subscription;
+  },
+
+  syncSubscription: async (data: {
+    plan: string;
+    revenuecatCustomerId?: string;
+    originalTransactionId?: string;
+    currentPeriodEnd?: string | null;
+    status?: string;
+  }) => {
+    const res = await apiClient.post("/finance/subscription/sync", data);
+    return res.data.subscription;
+  },
 };
 
 export default financeService;
